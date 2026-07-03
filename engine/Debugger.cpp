@@ -6,6 +6,7 @@
 #include "GameObject.h"
 
 #include <SDL3/SDL.h>
+#include <cmath>
 
 namespace Debug {
 
@@ -73,6 +74,26 @@ void drawRect(Scene& scene, float x, float y, float w, float h) {
     SDL_FRect box{ sx - dw * 0.5f, sy - dh * 0.5f, dw, dh };
     SDL_SetRenderDrawColor(r, 255, 90, 90, 255); // rojo
     SDL_RenderRect(r, &box);
+}
+
+void drawCircle(Scene& scene, float x, float y, float radius) {
+    if (!g_enabled) return;
+    SDL_Renderer* r = scene.getRenderer();
+    float sx, sy, zoom;
+    toScreen(scene, x, y, sx, sy, zoom);
+    float rr = radius * zoom;
+
+    // Aproximamos el circulo con un poligono de segmentos (suficiente para debug).
+    const int SEG = 24;
+    SDL_SetRenderDrawColor(r, 255, 90, 90, 255); // rojo, como el resto de primitivas
+    float prevX = sx + rr, prevY = sy;
+    for (int i = 1; i <= SEG; ++i) {
+        float a = (float)i / SEG * 6.2831853f; // 2*PI
+        float cx = sx + rr * std::cos(a);
+        float cy = sy + rr * std::sin(a);
+        SDL_RenderLine(r, prevX, prevY, cx, cy);
+        prevX = cx; prevY = cy;
+    }
 }
 
 void drawLine(Scene& scene, float x1, float y1, float x2, float y2) {

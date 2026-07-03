@@ -20,14 +20,22 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="engine\AssetManager.cpp" />
+    <ClCompile Include="engine\Audio.cpp" />
     <ClCompile Include="engine\BoxCollider.cpp" />
+    <ClCompile Include="engine\BulletPool.cpp" />
     <ClCompile Include="engine\Camera.cpp" />
     <ClCompile Include="engine\Debugger.cpp" />
+    <ClCompile Include="engine\DecalLayer.cpp" />
     <ClCompile Include="engine\FollowCamera.cpp" />
+    <ClCompile Include="engine\ParticleSystem.cpp" />
     <ClCompile Include="engine\Scene.cpp" />
+    <ClCompile Include="engine\ScreenFade.cpp" />
+    <ClCompile Include="engine\Shapes.cpp" />
     <ClCompile Include="engine\SpriteAnimator.cpp" />
     <ClCompile Include="engine\SpriteRenderer.cpp" />
+    <ClCompile Include="engine\TextRenderer.cpp" />
     <ClCompile Include="engine\TilemapRenderer.cpp" />
+    <ClCompile Include="game\BulletHell.cpp" />
     <ClCompile Include="game\Platformer.cpp" />
     <ClCompile Include="game\Shooter.cpp" />
     <ClCompile Include="game\TopDown.cpp" />
@@ -35,11 +43,24 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="engine\AssetManager.h" />
+    <ClInclude Include="engine\Audio.h" />
+    <ClInclude Include="engine\BlendMode.h" />
     <ClInclude Include="engine\BoxCollider.h" />
+    <ClInclude Include="engine\BulletPool.h" />
     <ClInclude Include="engine\Camera.h" />
+    <ClInclude Include="engine\CircleCollider.h" />
+    <ClInclude Include="engine\Collision.h" />
+    <ClInclude Include="engine\Health.h" />
     <ClInclude Include="engine\Component.h" />
+    <ClInclude Include="engine\ChildOf.h" />
     <ClInclude Include="engine\Debugger.h" />
+    <ClInclude Include="engine\DecalLayer.h" />
     <ClInclude Include="engine\FollowCamera.h" />
+    <ClInclude Include="engine\ParticleSystem.h" />
+    <ClInclude Include="engine\PhaseTimer.h" />
+    <ClInclude Include="engine\ScreenFade.h" />
+    <ClInclude Include="engine\Shapes.h" />
+    <ClInclude Include="engine\TextRenderer.h" />
     <ClInclude Include="engine\GameObject.h" />
     <ClInclude Include="engine\RigidBody2D.h" />
     <ClInclude Include="engine\Scene.h" />
@@ -48,6 +69,7 @@
     <ClInclude Include="engine\TilemapRenderer.h" />
     <ClInclude Include="engine\third_party\nlohmann\json.hpp" />
     <ClInclude Include="engine\Transform.h" />
+    <ClInclude Include="game\BulletHell.h" />
     <ClInclude Include="game\Platformer.h" />
     <ClInclude Include="game\Shooter.h" />
     <ClInclude Include="game\TopDown.h" />
@@ -136,18 +158,19 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>D:\SDL3\include; D:\SDL3_image\include; $(ProjectDir)engine\third_party</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\SDL3\include;C:\SDL3_image\include;$(ProjectDir)engine\third_party;C:\SDL3_mixer\include</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>D:\SDL3\lib\x64;D:\SDL3_image\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>SDL3.lib;SDL3_image.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\SDL3\lib\x64;C:\SDL3_image\lib\x64;C:\SDL3_mixer\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>SDL3.lib;SDL3_image.lib;SDL3_mixer.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy /y "D:\SDL3\lib\x64\SDL3.dll" "$(OutDir)"
-xcopy /y "D:\SDL3_image\lib\x64\SDL3_image.dll" "$(OutDir)"
+      <Command>xcopy /y "C:\SDL3\lib\x64\SDL3.dll" "$(OutDir)"
+xcopy /y "C:\SDL3_image\lib\x64\SDL3_image.dll" "$(OutDir)"
+xcopy /y "C:\SDL3_mixer\lib\x64\SDL3_mixer.dll" "$(OutDir)"
 xcopy /Y /E /I "$(ProjectDir)assets" "$(OutDir)assets"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>

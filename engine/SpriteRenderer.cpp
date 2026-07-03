@@ -6,6 +6,17 @@
 
 #include <SDL3/SDL.h>
 
+// Traduce el BlendMode del motor al de SDL (SDL solo vive aqui).
+static SDL_BlendMode toSDLBlend(BlendMode m) {
+    switch (m) {
+        case BlendMode::None: return SDL_BLENDMODE_NONE;
+        case BlendMode::Add:  return SDL_BLENDMODE_ADD;
+        case BlendMode::Mod:  return SDL_BLENDMODE_MOD;
+        case BlendMode::Alpha:
+        default:              return SDL_BLENDMODE_BLEND;
+    }
+}
+
 SpriteRenderer::SpriteRenderer(std::string imagePath)
     : path(std::move(imagePath)) {}
 
@@ -63,8 +74,18 @@ void SpriteRenderer::render() {
     SDL_FRect src{ srcX, srcY, srcW, srcH };
     const SDL_FRect* srcPtr = useSrcRect ? &src : nullptr;
 
+    // Modulacion de color/alpha y modo de mezcla antes de dibujar.
+    SDL_SetTextureColorMod(texture, (Uint8)colR, (Uint8)colG, (Uint8)colB);
+    SDL_SetTextureAlphaMod(texture, (Uint8)colA);
+    SDL_SetTextureBlendMode(texture, toSDLBlend(blend));
+
     // center = nullptr => SDL rota alrededor del centro del dst, que ahora es el
     // centro real del sprite. Asi la rotacion tambien queda bien anclada.
     SDL_RenderTextureRotated(renderer, texture, srcPtr, &dst,
         t->rotation, nullptr, flip);
+
+    // La textura la comparte el AssetManager: dejarla en neutro para no teñir a otros.
+    SDL_SetTextureColorMod(texture, 255, 255, 255);
+    SDL_SetTextureAlphaMod(texture, 255);
+    SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
 }

@@ -14,9 +14,16 @@ class Scene;
 class GameObject {
 public:
     std::string name;
+    // Etiqueta y capa para filtrar objetos SIN comparar por nombre (mas robusto y
+    // barato que name == "..."). Ej.: en onCollision, if (other->tag == "bala").
+    // 'layer' es un entero libre para agrupar (jugador, enemigo, peligro, muro...).
+    std::string tag;
+    int layer = 0;
     Scene* scene = nullptr;
     Transform* transform = nullptr;
     bool alive = true; // false = marcado para destruir; la Scene lo barre al final del frame
+
+    bool hasTag(const std::string& t) const { return tag == t; }
 
     explicit GameObject(std::string n = "GameObject") : name(std::move(n)) {
         transform = addComponent<Transform>();
