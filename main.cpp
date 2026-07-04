@@ -10,6 +10,7 @@
 #include "game/TopDown.h"
 #include "game/Shooter.h"
 #include "game/BulletHell.h"
+#include "game/Sector1.h"
 
 int main(int argc, char* argv[]) {
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
@@ -57,15 +58,19 @@ int main(int argc, char* argv[]) {
                 if (event.key.scancode == SDL_SCANCODE_2) sel = 2;
                 if (event.key.scancode == SDL_SCANCODE_3) sel = 3;
                 if (event.key.scancode == SDL_SCANCODE_4) sel = 4;
+                if (event.key.scancode == SDL_SCANCODE_5) sel = 5;
+                if (event.key.scancode == SDL_SCANCODE_6) sel = 6;
 
                 if (sel != 0 && sel != current) {
                     current = sel;
                     scene = std::make_unique<Scene>(renderer);
                     accumulator = 0.0; // arrancar la nueva escena con el reloj limpio
-                    if (sel == 1) { buildPlatformer(*scene); SDL_SetWindowTitle(window, "Ejemplo 1: Platformer  (1/2/3/4 cambia, F1 debug)"); }
-                    if (sel == 2) { buildTopDown(*scene);    SDL_SetWindowTitle(window, "Ejemplo 2: Top-down  (1/2/3/4 cambia, F1 debug)"); }
-                    if (sel == 3) { buildShooter(*scene);    SDL_SetWindowTitle(window, "Ejemplo 3: Shooter  (1/2/3/4 cambia, F1 debug)"); }
-                    if (sel == 4) { buildBulletHell(*scene); SDL_SetWindowTitle(window, "Ejemplo 4: Bullet Hell (test)  (1/2/3/4 cambia, F1 debug)"); }
+                    if (sel == 1) { buildPlatformer(*scene); SDL_SetWindowTitle(window, "Ejemplo 1: Platformer  (1-6 cambia, F1 debug)"); }
+                    if (sel == 2) { buildTopDown(*scene);    SDL_SetWindowTitle(window, "Ejemplo 2: Top-down  (1-6 cambia, F1 debug)"); }
+                    if (sel == 3) { buildShooter(*scene);    SDL_SetWindowTitle(window, "Ejemplo 3: Shooter  (1-6 cambia, F1 debug)"); }
+                    if (sel == 4) { buildBulletHell(*scene); SDL_SetWindowTitle(window, "Ejemplo 4: Boss HERCULES-1  (1-6 cambia, F1 debug)"); }
+                    if (sel == 5) { buildCamara01(*scene);   SDL_SetWindowTitle(window, "Sector 1 - Camara 01: El Pozo  (1-6 cambia, F1 debug)"); }
+                    if (sel == 6) { buildCamara02(*scene);   SDL_SetWindowTitle(window, "Sector 1 - Camara 02: La Trinchera  (1-6 cambia, F1 debug)"); }
                 }
             }
         }

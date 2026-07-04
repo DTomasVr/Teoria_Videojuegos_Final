@@ -47,48 +47,60 @@ namespace {
     constexpr float BOSS_BULLET_SPEED = 200.0f;
     constexpr float BULLET_RADIUS = 8.0f, BULLET_LIFE = 6.0f;
 
-    // Brazos: 4, anclados al chasis, orbitan a ARM_OFFSET (GDD 7.1).
-    constexpr int   ARM_COUNT  = 4;
-    constexpr float ARM_OFFSET = 110.0f;
-    constexpr float ARM_TIP    = 50.0f; // punta del brazo (desde donde emite)
+    // Chasis + 4 brazos (GDD 7.1/7.3). El cuerpo es solido (~3 tiles) y ocupa el
+    // centro; los brazos orbitan y SON LETALES por contacto ("principal amenaza movil").
+    constexpr int   ARM_COUNT   = 4;
+    constexpr float ARM_OFFSET  = 120.0f;
+    constexpr float ARM_TIP     = 55.0f;   // punta del brazo
+    constexpr float ARM_HIT     = 30.0f;   // radio letal del brazo
+    constexpr float CORE_BODY   = 92.0f;   // lado del collider solido del chasis
 
-    // Rotacion segun calor (GDD 7.4): 18 -> 28 -> 40 deg/s; inversion a alto calor.
-    constexpr float SPIN_LOW = 18.0f, SPIN_MID = 28.0f, SPIN_HIGH = 40.0f;
-    constexpr float SPIN_P2  = 12.0f; // Fase 2: mas lento, mas cobertura
-    constexpr float HEAT_MID = 25.0f, HEAT_HIGH = 60.0f;
-    constexpr float REVERSE_PERIOD = 15.0f, REVERSE_TIME = 3.0f;
+    // Rotacion segun calor: mas rapida cuanto mas calor. A partir del 30% de calor
+    // el sentido de giro ademas ALTERNA (ver REVERSE_PERIOD abajo).
+    constexpr float SPIN_LOW = 28.0f, SPIN_MID = 46.0f, SPIN_HIGH = 68.0f;
+    constexpr float SPIN_P2  = 18.0f;
+    constexpr float HEAT_MID = 20.0f, HEAT_FAST = 55.0f; // tramos de velocidad
+    constexpr float HEAT_REVERSE = 15.0f;                // desde aqui alterna el giro
+    // Desde el 30% de calor el sentido de giro ALTERNA cada REVERSE_PERIOD seg
+    // (horario -> antihorario -> horario ...): oscilacion constante, dificil de leer.
+    constexpr float REVERSE_PERIOD = 4.5f;
 
-    // Armas Fase 1.
-    constexpr float MINIGUN_INTERVAL = 0.09f;                 // brazos 1+3: flujo continuo
-    constexpr float HMG_INTERVAL = 0.85f; constexpr int HMG_BURST = 4; // brazos 2+4: rafagas
+    // Armas de Fase 1 (los brazos SIEMPRE disparan, sin pausas).
+    constexpr float MINIGUN_INTERVAL = 0.08f;
+    constexpr float HMG_INTERVAL = 0.5f; constexpr int HMG_BURST = 4;
     constexpr float HMG_SPREAD = 0.22f;
 
-    // Armas Fase 2.
-    constexpr float FLAME_DROP_INTERVAL = 0.22f; // brazos 1+3: parches de fuego
-    constexpr float MINE_DROP_INTERVAL  = 6.0f;  // brazos 2+4: una mina/6s (GDD 7.5)
+    // Peligros de Fase 2: aparecen ALEATORIAMENTE por todo el mapa (los patrones del
+    // GDD son referenciales para el TAMANO). La cadencia se acelera con el calor, asi
+    // el suelo se va cubriendo (GDD 7.5: ~60% cubierto a ~90% de calor).
+    constexpr float FLAME_RADIUS = 60.0f, FLAME_LIFE = 4.0f, FLAME_WARN = 0.6f;
+    constexpr float FLAME_INT_MAX = 0.55f, FLAME_INT_MIN = 0.20f; // seg entre parches
+    constexpr float MINE_RADIUS = 72.0f, MINE_PULSE = 3.0f, MINE_WINDOW = 0.35f;
+    constexpr float MINE_INT_MAX = 1.3f,  MINE_INT_MIN = 0.45f;   // seg entre minas (MAS bombas)
 
-    // Parches de fuego / minas.
-    constexpr float FLAME_RADIUS = 55.0f, FLAME_LIFE = 4.0f;
-    constexpr float MINE_RADIUS = 70.0f, MINE_PULSE = 3.0f, MINE_WINDOW = 0.35f;
-
-    // Placas de presion (GDD 7.4).
-    constexpr float PLATE_HEAT = 8.0f;       // +8% por activacion
-    constexpr float PLATE_COOLDOWN = 1.5f;   // ritmo de reactivacion mientras la pisas
-    constexpr float ARM_PAUSE = 2.5f;        // pausa del brazo mas cercano
+    // Placas de presion: solo suben el calor (ya no pausan los brazos). Menos calor
+    // por pulso + mas cooldown = la Fase 1 sube el calor mas despacio y dura mas.
+    constexpr float PLATE_HEAT = 5.0f, PLATE_COOLDOWN = 1.8f;
 
     // Fases.
-    constexpr float PHASE1_TIME   = 75.0f;   // limite de Fase 1 (tambien HUD)
-    constexpr float PHASE1_TARGET = 72.0f;   // calor que cierra la Fase 1
+    constexpr float PHASE1_TIME   = 90.0f;   // limite de Fase 1 (tambien HUD)
+    constexpr float PHASE1_TARGET = 64.0f;   // calor que cierra la Fase 1
     constexpr float TRANSITION_TIME = 3.0f;  // silencio entre fases (GDD 7.5)
-    constexpr float PASSIVE_HEAT  = 2.0f;    // calor/seg pasivo en Fase 2 -> 100 = victoria
-    constexpr float WIN_TIME = 1.3f;         // duracion de la onda de choque de victoria
+    constexpr float PASSIVE_HEAT  = 0.75f;   // calor/seg pasivo en Fase 2 (mas lento: ~48 s a 100%)
+    constexpr float WIN_TIME = 1.3f;
 
     constexpr float PI = 3.14159265f;
     const char* SHIPS_SHEET = "assets/kenney_pixelshmup/Tilemap/ships_packed.png";
     constexpr int SHIP_CELL = 32;
 
     float frand(float a, float b) { return a + (b - a) * ((float)std::rand() / (float)RAND_MAX); }
+    float randX() { return frand(-HALF_W + 60.0f, HALF_W - 60.0f); }
+    float randY() { return frand(-HALF_H + 60.0f, HALF_H - 60.0f); }
 }
+
+// Componentes locales de esta escena. Namespace anonimo (enlace interno) para no
+// chocar con clases del mismo nombre en otras escenas (p.ej. RoomRenderer en Sector1.cpp).
+namespace {
 
 // ----------------------------------------------------------------------------
 //  Suelo y contorno de la arena.
@@ -167,51 +179,65 @@ private:
 };
 
 // ----------------------------------------------------------------------------
-//  Campo de parches de fuego (Fase 2, lanzallamas de brazos 1+3, GDD 7.5). Los
-//  parches se ANADEN via spawnAt (los brazos los sueltan segun rotan), persisten,
-//  son letales por contacto y dejan quemaduras acumuladas en el suelo (decals).
+//  Campo de parches de fuego (Fase 2, GDD 7.5). Aparecen en posiciones ALEATORIAS
+//  del mapa a una cadencia que se acelera con el calor (intensity). Cada parche
+//  primero TELEGRAFIA (no letal) y luego arde: letal por contacto, persiste y deja
+//  una quemadura permanente (decal). La cobertura se acumula, nunca se limpia.
 // ----------------------------------------------------------------------------
 class FlamePatchField : public Component {
 public:
     CircleCollider* target = nullptr;
     Health*         hp = nullptr;
     DecalLayer*     decals = nullptr;
+    float intensity = 0.0f; // 0..1, lo fija BossRoom desde el calor
 
-    void enable() { active = true; }
+    void enable() { active = true; spawnTimer = 0.3f; }
     void reset()  { active = false; for (Patch& p : patches) p.active = false; }
-    void spawnAt(float x, float y) {
-        if (!active) return;
-        for (Patch& p : patches)
-            if (!p.active) { p.x = x; p.y = y; p.life = FLAME_LIFE; p.active = true; return; }
-    }
 
     void update(float dt) override {
         if (!active) return;
+        spawnTimer -= dt;
+        if (spawnTimer <= 0.0f) { spawnRandom(); spawnTimer = interval(); }
+
         for (Patch& p : patches) {
             if (!p.active) continue;
+            if (p.warn > 0.0f) { p.warn -= dt; continue; }   // telegrafo: aun no arde
             p.life -= dt;
             if (p.life <= 0.0f) { p.active = false; scorch(p.x, p.y); }
         }
         if (target && hp) {
             float cx = target->centerX(), cy = target->centerY();
             for (Patch& p : patches)
-                if (p.active && Collision::pointInCircle(cx, cy, p.x, p.y, FLAME_RADIUS)) { hp->kill(); break; }
+                if (p.active && p.warn <= 0.0f &&
+                    Collision::pointInCircle(cx, cy, p.x, p.y, FLAME_RADIUS)) { hp->kill(); break; }
         }
     }
     void render() override {
         Scene& s = *gameObject->scene;
         for (Patch& p : patches) {
             if (!p.active) continue;
-            float frac = p.life / FLAME_LIFE; if (frac < 0.0f) frac = 0.0f;
-            int a = (int)(60 + 120 * frac);
-            Shapes::fillCircle(s, p.x, p.y, FLAME_RADIUS, 255, 110, 20, (int)(a * 0.45f));
-            Shapes::fillCircle(s, p.x, p.y, FLAME_RADIUS * 0.6f, 255, 200, 60, a);
+            if (p.warn > 0.0f) {   // telegrafo: anillo parpadeante
+                float pulse = 0.5f + 0.5f * std::sin(p.warn * 26.0f);
+                Shapes::outlineCircle(s, p.x, p.y, FLAME_RADIUS, 255, 120, 40, (int)(80 + 150 * pulse));
+            } else {
+                float frac = p.life / FLAME_LIFE; if (frac < 0.0f) frac = 0.0f;
+                int a = (int)(60 + 120 * frac);
+                Shapes::fillCircle(s, p.x, p.y, FLAME_RADIUS, 255, 110, 20, (int)(a * 0.45f));
+                Shapes::fillCircle(s, p.x, p.y, FLAME_RADIUS * 0.6f, 255, 200, 60, a);
+            }
         }
     }
 private:
-    struct Patch { float x = 0, y = 0, life = 0; bool active = false; };
-    std::vector<Patch> patches = std::vector<Patch>(48);
+    struct Patch { float x = 0, y = 0, life = 0, warn = 0; bool active = false; };
+    std::vector<Patch> patches = std::vector<Patch>(80);
     bool active = false;
+    float spawnTimer = 0.0f;
+
+    float interval() const { return FLAME_INT_MAX - (FLAME_INT_MAX - FLAME_INT_MIN) * intensity; }
+    void spawnRandom() {
+        for (Patch& p : patches)
+            if (!p.active) { p.x = randX(); p.y = randY(); p.life = FLAME_LIFE; p.warn = FLAME_WARN; p.active = true; return; }
+    }
     void scorch(float x, float y) {
         if (!decals) return;
         for (int i = 0; i < 6; ++i) {
@@ -223,25 +249,24 @@ private:
 };
 
 // ----------------------------------------------------------------------------
-//  Campo de minas (Fase 2, lanzaminas de brazos 2+4, GDD 7.5). Se ANADEN via
-//  spawnAt, se anclan al suelo y pulsan un anillo letal cada MINE_PULSE seg
-//  (memorizacion). Persisten hasta el fin del combate.
+//  Campo de minas (Fase 2, GDD 7.5). Aparecen en posiciones ALEATORIAS del mapa,
+//  se anclan y pulsan un anillo letal cada MINE_PULSE seg (letal solo en el pulso:
+//  memorizacion). Persisten hasta el fin. La cadencia se acelera con el calor.
 // ----------------------------------------------------------------------------
 class MineField : public Component {
 public:
     CircleCollider* target = nullptr;
     Health*         hp = nullptr;
+    float intensity = 0.0f;
 
-    void enable() { active = true; }
+    void enable() { active = true; spawnTimer = 0.8f; }
     void reset()  { active = false; for (M& m : mines) m.active = false; }
-    void spawnAt(float x, float y) {
-        if (!active) return;
-        for (M& m : mines)
-            if (!m.active) { m.x = x; m.y = y; m.timer = 0.0f; m.pulseT = 0.0f; m.active = true; return; }
-    }
 
     void update(float dt) override {
         if (!active) return;
+        spawnTimer -= dt;
+        if (spawnTimer <= 0.0f) { spawnRandom(); spawnTimer = interval(); }
+
         float cx = target ? target->centerX() : 0.0f, cy = target ? target->centerY() : 0.0f;
         for (M& m : mines) {
             if (!m.active) continue;
@@ -265,36 +290,45 @@ public:
     }
 private:
     struct M { float x = 0, y = 0, timer = 0, pulseT = 0; bool active = false; };
-    std::vector<M> mines = std::vector<M>(32);
+    std::vector<M> mines = std::vector<M>(110);
     bool active = false;
+    float spawnTimer = 0.0f;
+
+    float interval() const { return MINE_INT_MAX - (MINE_INT_MAX - MINE_INT_MIN) * intensity; }
+    void spawnRandom() {
+        for (M& m : mines)
+            if (!m.active) { m.x = randX(); m.y = randY(); m.timer = 0.0f; m.pulseT = 0.0f; m.active = true; return; }
+    }
 };
 
 // ----------------------------------------------------------------------------
-//  Brazo del jefe. Cuatro armas segun la fase y el par (GDD 7.4/7.5):
-//    Par A (brazos 1+3): Minigun (Fase 1) / Lanzallamas (Fase 2)
-//    Par B (brazos 2+4): Ametralladora pesada (Fase 1) / Lanzaminas (Fase 2)
-//  Dispara RADIALMENTE hacia afuera del centro: como el brazo rota, el flujo
-//  dibuja una espiral. Una placa puede PAUSARLO (dispersion termica).
+//  Brazo del jefe. Fase 1: minigun (par A) o HMG (par B), disparo RADIAL hacia
+//  afuera (la rotacion dibuja la espiral). El brazo ademas es SOLIDO/LETAL por
+//  contacto en ambas fases ("principal amenaza movil"). Una placa puede pausarlo.
 // ----------------------------------------------------------------------------
-enum class Weapon { Minigun, HMG, Flamethrower, MineLauncher };
+enum class Weapon { Minigun, HMG };
 
 class BossArm : public Component {
 public:
-    BulletPool*      pool = nullptr;
-    Transform*       coreT = nullptr;
-    FlamePatchField* flames = nullptr;
-    MineField*       mines = nullptr;
+    BulletPool*     pool = nullptr;
+    Transform*      coreT = nullptr;
+    CircleCollider* target = nullptr;   // hurtbox del jugador (letalidad del brazo)
+    Health*         hp = nullptr;
     bool pairA = true;
 
-    Weapon weapon = Weapon::Minigun; // lo fija BossRoom cada frame
-    bool   active = false;
-
-    void pause(float t) { if (t > pauseTimer) pauseTimer = t; }
+    Weapon weapon = Weapon::Minigun; // lo fija BossRoom
+    bool   firing = false;           // solo dispara balas en Fase 1
 
     void update(float dt) override {
-        if (weapon != lastWeapon) { t1 = t2 = 0.0f; lastWeapon = weapon; } // sin rafaga al cambiar
-        if (pauseTimer > 0.0f) { pauseTimer -= dt; return; }               // pausa por placa
-        if (!active) return;
+        // Letalidad de contacto: el brazo es un boom solido, letal SIEMPRE (tambien
+        // retraido). Se salta si el jugador es invulnerable (Dash).
+        if (target && hp && !hp->isInvulnerable() &&
+            Collision::pointInCircle(target->centerX(), target->centerY(),
+                                     gameObject->transform->x, gameObject->transform->y,
+                                     ARM_HIT + target->radius))
+            hp->kill();
+
+        if (!firing) return; // brazos siempre disparan en Fase 1 (sin pausas)
 
         float ox = gameObject->transform->x, oy = gameObject->transform->y;
         float dx = ox - (coreT ? coreT->x : 0.0f);
@@ -303,28 +337,16 @@ public:
         if (l > 0.0f) { dx /= l; dy /= l; } else { dx = 0.0f; dy = 1.0f; }
         float tipX = ox + dx * ARM_TIP, tipY = oy + dy * ARM_TIP;
 
-        t1 += dt; t2 += dt;
-        switch (weapon) {
-            case Weapon::Minigun:
-                while (t1 >= MINIGUN_INTERVAL) { t1 -= MINIGUN_INTERVAL;
-                    if (pool) pool->spawn(tipX, tipY, dx * BOSS_BULLET_SPEED, dy * BOSS_BULLET_SPEED, BULLET_RADIUS, BULLET_LIFE); }
-                break;
-            case Weapon::HMG:
-                while (t1 >= HMG_INTERVAL) { t1 -= HMG_INTERVAL; fireBurst(tipX, tipY, dx, dy); }
-                break;
-            case Weapon::Flamethrower:
-                while (t1 >= FLAME_DROP_INTERVAL) { t1 -= FLAME_DROP_INTERVAL;
-                    if (flames) flames->spawnAt(tipX + dx * 30.0f, tipY + dy * 30.0f); }
-                break;
-            case Weapon::MineLauncher:
-                while (t2 >= MINE_DROP_INTERVAL) { t2 -= MINE_DROP_INTERVAL;
-                    if (mines) mines->spawnAt(tipX, tipY); }
-                break;
+        t1 += dt;
+        if (weapon == Weapon::Minigun) {
+            while (t1 >= MINIGUN_INTERVAL) { t1 -= MINIGUN_INTERVAL;
+                if (pool) pool->spawn(tipX, tipY, dx * BOSS_BULLET_SPEED, dy * BOSS_BULLET_SPEED, BULLET_RADIUS, BULLET_LIFE); }
+        } else {
+            while (t1 >= HMG_INTERVAL) { t1 -= HMG_INTERVAL; fireBurst(tipX, tipY, dx, dy); }
         }
     }
 private:
-    float t1 = 0.0f, t2 = 0.0f, pauseTimer = 0.0f;
-    Weapon lastWeapon = Weapon::Minigun;
+    float t1 = 0.0f;
     void fireBurst(float x, float y, float dx, float dy) {
         if (!pool) return;
         float base = std::atan2(dy, dx);
@@ -337,20 +359,13 @@ private:
 
 // ----------------------------------------------------------------------------
 //  Controlador del jefe HERCULES-1 de DOS FASES + HUD (GDD 7).
-//   Fase 1 (SUPRESION): brazos minigun/HMG; rotacion segun calor (18->28->40, con
-//     inversiones a alto calor). Pisa las placas para subir el CALOR; cada placa
-//     +8% y PAUSA el brazo mas cercano. A PHASE1_TARGET (o agotar el tiempo) -> transicion.
-//   TRANSICION: ~3 s de silencio; se retraen los brazos y se bloquean las placas.
-//   Fase 2 (ERRADICACION): brazos lanzallamas + lanzaminas llenan el suelo; el calor
-//     sube solo hasta 100% = victoria (onda de choque). Solo sobrevivir.
-//   MUERTE: se pierde TODO el progreso (calor Y temporizador a cero); respawn instantaneo.
 // ----------------------------------------------------------------------------
 enum class BossPhase { Supresion, Transicion, Erradicacion, Ganado };
 
 class BossRoom : public Component {
 public:
     PhaseTimer*   timer = nullptr;
-    TextRenderer *statusText = nullptr, *timerText = nullptr, *heatText = nullptr;
+    TextRenderer *statusText = nullptr, *timerText = nullptr, *heatText = nullptr, *nexusText = nullptr;
     ScreenFade*   fade = nullptr;
     GameObject*   player = nullptr;
     Health*       hp = nullptr;
@@ -367,31 +382,39 @@ public:
     float heat = 0.0f;
     BossPhase phase = BossPhase::Supresion;
 
-    // Consultas para otros componentes (placas, onda de choque).
     bool  platesLocked() const { return phase != BossPhase::Supresion; }
     bool  winning()      const { return phase == BossPhase::Ganado; }
     float shockRadius()  const { return shockR; }
 
-    // Activacion discreta de una placa: +8% y pausa el brazo mas cercano (GDD 7.4).
-    void onPlateActivated(float px, float py) {
+    void onPlateActivated(float, float) {
         if (phase != BossPhase::Supresion) return;
         heat += PLATE_HEAT;
-        pauseNearestArm(px, py);
         if (heat >= PHASE1_TARGET) { heat = PHASE1_TARGET; enterTransition(); }
     }
     void onPhase1TimerEnd() { enterTransition(); }
     void onPlayerDeath()    { resetProgress(false); }
 
+    // Primera linea de NEXUS-9 (se llama tras cablear el HUD, no en awake()).
+    void introLine() { setNexus("ESPECIMEN 0001 EN POSICION"); }
+
     void update(float dt) override {
         updateRotation(dt);
         pushArmState();
+        if (nexusTimer > 0.0f) { nexusTimer -= dt; if (nexusTimer <= 0.0f && nexusText) nexusText->setText(""); }
+
         switch (phase) {
             case BossPhase::Supresion: emitSteam(dt); break;
             case BossPhase::Transicion:
                 transTimer -= dt; if (transTimer <= 0.0f) enterPhase2(); break;
-            case BossPhase::Erradicacion:
+            case BossPhase::Erradicacion: {
                 heat += PASSIVE_HEAT * dt; emitSteam(dt);
-                if (heat >= 100.0f) { heat = 100.0f; win(); } break;
+                float inten = (heat - PHASE1_TARGET) / (100.0f - PHASE1_TARGET);
+                if (inten < 0.0f) inten = 0.0f; if (inten > 1.0f) inten = 1.0f;
+                if (flames) flames->intensity = inten; // el suelo se cubre mas con el calor
+                if (mines)  mines->intensity = inten;
+                if (heat >= 100.0f) { heat = 100.0f; win(); }
+                break;
+            }
             case BossPhase::Ganado:
                 winTimer -= dt; shockR += 950.0f * dt;
                 if (winTimer <= 0.0f) resetProgress(true); break;
@@ -401,47 +424,37 @@ public:
 
 private:
     float transTimer = 0.0f, winTimer = 0.0f, shockR = 0.0f;
-    float reverseClock = 0.0f, steamAcc = 0.0f;
-    bool  reversing = false;
+    float reverseClock = 0.0f, steamAcc = 0.0f, nexusTimer = 0.0f;
     int   spinDir = 1;
+
+    void setNexus(const char* t) { if (nexusText) nexusText->setText(t); nexusTimer = 4.5f; }
 
     void updateRotation(float dt) {
         float speed;
         if (phase == BossPhase::Transicion || phase == BossPhase::Ganado) speed = 0.0f;
-        else if (phase == BossPhase::Erradicacion) { speed = SPIN_P2; spinDir = 1; reversing = false; }
-        else { // SUPRESION: velocidad por tramo de calor + inversion a alto calor
-            speed = (heat < HEAT_MID) ? SPIN_LOW : (heat < HEAT_HIGH) ? SPIN_MID : SPIN_HIGH;
-            if (heat >= HEAT_HIGH) {
+        else if (phase == BossPhase::Erradicacion) { speed = SPIN_P2; }
+        else {
+            speed = (heat < HEAT_MID) ? SPIN_LOW : (heat < HEAT_FAST) ? SPIN_MID : SPIN_HIGH;
+            // Desde el 30% de calor, el sentido de giro se invierte cada REVERSE_PERIOD
+            // seg y se queda: horario un rato, antihorario un rato, y asi sin parar.
+            if (heat >= HEAT_REVERSE) {
                 reverseClock += dt;
-                if (!reversing && reverseClock >= REVERSE_PERIOD) { reversing = true;  reverseClock = 0.0f; }
-                else if (reversing && reverseClock >= REVERSE_TIME) { reversing = false; reverseClock = 0.0f; }
-            } else { reversing = false; reverseClock = 0.0f; }
-            spinDir = reversing ? -1 : 1;
+                if (reverseClock >= REVERSE_PERIOD) { reverseClock -= REVERSE_PERIOD; spinDir = -spinDir; }
+            } else { reverseClock = 0.0f; spinDir = 1; }
         }
         if (coreSpin) coreSpin->degPerSec = speed * spinDir;
     }
 
     void pushArmState() {
         for (BossArm* a : arms) {
-            if (phase == BossPhase::Supresion)      { a->active = true;  a->weapon = a->pairA ? Weapon::Minigun     : Weapon::HMG; }
-            else if (phase == BossPhase::Erradicacion){ a->active = true; a->weapon = a->pairA ? Weapon::Flamethrower : Weapon::MineLauncher; }
-            else                                    { a->active = false; } // transicion/ganado: brazos retraidos
+            a->weapon = a->pairA ? Weapon::Minigun : Weapon::HMG;
+            a->firing = (phase == BossPhase::Supresion); // Fase 2: brazos giran/letales, sin balas
         }
-    }
-
-    void pauseNearestArm(float px, float py) {
-        BossArm* best = nullptr; float bestD = 1e18f;
-        for (BossArm* a : arms) {
-            float dx = a->gameObject->transform->x - px, dy = a->gameObject->transform->y - py;
-            float d = dx * dx + dy * dy;
-            if (d < bestD) { bestD = d; best = a; }
-        }
-        if (best) best->pause(ARM_PAUSE);
     }
 
     void emitSteam(float dt) {
         if (!steam || !coreT) return;
-        steamAcc += (heat / 100.0f) * 22.0f * dt; // mas vapor cuanto mas calor (GDD 8.1)
+        steamAcc += (heat / 100.0f) * 22.0f * dt;
         while (steamAcc >= 1.0f) {
             steamAcc -= 1.0f;
             float ang = frand(0.0f, 2.0f * PI), r = frand(0.0f, 46.0f);
@@ -455,6 +468,7 @@ private:
         if (phase != BossPhase::Supresion) return;
         phase = BossPhase::Transicion; transTimer = TRANSITION_TIME;
         if (statusText) statusText->setText("ERRADICACION");
+        setNexus("MATRIZ SIGMA. ERRADICACION");
         if (pool) pool->clear();
         if (timer) timer->running = false;
     }
@@ -467,23 +481,25 @@ private:
         phase = BossPhase::Ganado; winTimer = WIN_TIME; shockR = 0.0f;
         if (hp) hp->setInvulnerable(20.0f);
         if (statusText) statusText->setText("SOBRECALENTADO");
+        setNexus("SUPERVIVENCIA MAXIMA. LOTE 0002");
         if (fade) fade->fadeOut(0.9f);
     }
 
     void resetProgress(bool withFade) {
         heat = 0.0f; phase = BossPhase::Supresion;
         transTimer = 0.0f; winTimer = 0.0f; shockR = 0.0f;
-        reverseClock = 0.0f; reversing = false; spinDir = 1;
+        reverseClock = 0.0f; spinDir = 1;
         if (timer) timer->reset();
-        if (flames) flames->reset();
-        if (mines)  mines->reset();
+        if (flames) { flames->reset(); flames->intensity = 0.0f; }
+        if (mines)  { mines->reset();  mines->intensity = 0.0f; }
         if (pool) pool->clear();
         if (player) {
             player->transform->x = startX; player->transform->y = startY;
             if (auto rb = player->getComponent<RigidBody2D>()) { rb->velocityX = 0.0f; rb->velocityY = 0.0f; }
         }
-        if (hp) { hp->reset(); hp->setInvulnerable(0.4f); } // breve gracia al reaparecer
+        if (hp) { hp->reset(); hp->setInvulnerable(0.5f); }
         if (statusText) statusText->setText("SUPRESION");
+        setNexus("ESPECIMEN EN POSICION");
         if (withFade && fade) fade->fadeIn(0.6f);
     }
 
@@ -496,8 +512,7 @@ private:
 };
 
 // ----------------------------------------------------------------------------
-//  Onda de choque de victoria (GDD 7.7): anillo no letal que se expande. Objeto
-//  aparte, creado al final, para dibujarse POR ENCIMA del combate.
+//  Onda de choque de victoria (GDD 7.7): anillo no letal que se expande.
 // ----------------------------------------------------------------------------
 class ShockwaveView : public Component {
 public:
@@ -511,8 +526,7 @@ public:
 };
 
 // ----------------------------------------------------------------------------
-//  Placa de presion: trigger que se ACTIVA en pulsos (+8%) mientras la pisas, con
-//  un cooldown. En Fase 2 queda BLOQUEADA (GDD 7.5). Filtra por TAG.
+//  Placa de presion: pulsos de +8% mientras la pisas; BLOQUEADA en Fase 2.
 // ----------------------------------------------------------------------------
 class PressurePlate : public Component {
 public:
@@ -535,14 +549,13 @@ public:
         Scene& s = *gameObject->scene;
         float x = gameObject->transform->x, y = gameObject->transform->y;
         bool locked = state ? state->platesLocked() : false;
-        if (locked) { // abrazadera hidraulica: apagada con un aspa
+        if (locked) {
             Shapes::fillRect(s, x, y, w, h, 55, 55, 62, 150);
             Shapes::outlineRect(s, x, y, w, h, 120, 120, 130, 200);
             Shapes::line(s, x - w * 0.4f, y - h * 0.4f, x + w * 0.4f, y + h * 0.4f, 120, 120, 130, 200);
             Shapes::line(s, x - w * 0.4f, y + h * 0.4f, x + w * 0.4f, y - h * 0.4f, 120, 120, 130, 200);
         } else {
-            int base = active ? 235 : 110;
-            base += (int)(20 * flash);
+            int base = active ? 235 : 110; base += (int)(20 * flash);
             Shapes::fillRect(s, x, y, w, h, base, base / 2, 12, 150);
             Shapes::outlineRect(s, x, y, w, h, 255, 200, 60, 220);
         }
@@ -550,6 +563,8 @@ public:
 private:
     bool contact = false, active = false; float cooldown = 0.0f, flash = 0.0f;
 };
+
+} // namespace (componentes locales)
 
 // ============================================================================
 //  Construccion de la escena
@@ -578,12 +593,11 @@ void buildBulletHell(Scene& scene) {
         auto bc = wall->addComponent<BoxCollider>(); bc->width = w.w; bc->height = w.h;
     }
 
-    // Estado del jefe (temprano: placas y peligros lo referencian).
     GameObject* logicObj = scene.createGameObject("RoomLogic");
     auto state = logicObj->addComponent<BossRoom>();
 
-    // 4 placas en las 4 esquinas (GDD 7.3), dispositivos de suelo: bajo el jugador.
-    const float pX = HALF_W - 90.0f, pY = HALF_H - 90.0f;
+    // 4 placas en las 4 esquinas (GDD 7.3), bajo el jugador.
+    const float pX = HALF_W - 100.0f, pY = HALF_H - 100.0f;
     const float platePos[4][2] = { { -pX, -pY }, { pX, -pY }, { -pX, pY }, { pX, pY } };
     for (auto& pp : platePos) {
         GameObject* plate = scene.createGameObject("Plate");
@@ -597,7 +611,7 @@ void buildBulletHell(Scene& scene) {
     // Jugador.
     GameObject* player = scene.createGameObject("Player");
     player->tag = "player";
-    player->transform->x = 0.0f; player->transform->y = HALF_H - 160.0f;
+    player->transform->x = 0.0f; player->transform->y = HALF_H - 170.0f;
     player->transform->scaleX = player->transform->scaleY = 2.0f;
     auto psr = player->addComponent<SpriteRenderer>(SHIPS_SHEET);
     psr->setSourceRect(0, 0, SHIP_CELL, SHIP_CELL);
@@ -607,7 +621,7 @@ void buildBulletHell(Scene& scene) {
     auto hp = player->addComponent<Health>();
     player->addComponent<BulletHellController>();
 
-    // Gore (rojo) y vapor del jefe (gris), sistemas de particulas.
+    // Particulas: gore (rojo) y vapor del jefe (gris).
     auto fx = scene.createGameObject("Gore")->addComponent<ParticleSystem>(512);
     fx->setBlendMode(BlendMode::Add);
     fx->colR = 230; fx->colG = 30; fx->colB = 30;
@@ -618,26 +632,27 @@ void buildBulletHell(Scene& scene) {
     auto steam = scene.createGameObject("Steam")->addComponent<ParticleSystem>(256);
     steam->setBlendMode(BlendMode::Alpha);
 
-    // Peligros de Fase 2 (inactivos hasta la Erradicacion).
+    // Peligros de Fase 2 (inactivos hasta la Erradicacion; aparecen al azar).
     auto flames = scene.createGameObject("Flames")->addComponent<FlamePatchField>();
     flames->target = hurt; flames->hp = hp; flames->decals = decals;
     auto mines = scene.createGameObject("Mines")->addComponent<MineField>();
     mines->target = hurt; mines->hp = hp;
 
-    // Chasis central rotatorio (PARENTING: los brazos son hijos).
+    // Chasis central: rota, SOLIDO (cuerpo ~3 tiles) y es padre de los brazos.
     GameObject* core = scene.createGameObject("Core");
     core->tag = "boss";
     auto coreSpin = core->addComponent<Spin>();
     core->transform->scaleX = core->transform->scaleY = 3.5f;
     auto csr = core->addComponent<SpriteRenderer>(SHIPS_SHEET);
     csr->setSourceRect(1 * SHIP_CELL, 3 * SHIP_CELL, SHIP_CELL, SHIP_CELL);
+    auto cbody = core->addComponent<BoxCollider>();
+    cbody->width = cbody->height = CORE_BODY; // el jugador no puede pararse en el centro
 
     std::vector<BossArm*> arms;
     for (int i = 0; i < ARM_COUNT; ++i) {
         GameObject* arm = scene.createGameObject("Arm");
         arm->transform->scaleX = arm->transform->scaleY = 2.0f;
         auto asr = arm->addComponent<SpriteRenderer>(SHIPS_SHEET);
-        // Par A (minigun/fuego) y par B (HMG/minas) con celdas distintas.
         int cell = (i % 2 == 0) ? 2 : 0;
         asr->setSourceRect(cell * SHIP_CELL, 3 * SHIP_CELL, SHIP_CELL, SHIP_CELL);
         auto ch = arm->addComponent<ChildOf>();
@@ -646,7 +661,7 @@ void buildBulletHell(Scene& scene) {
         ch->localX = std::cos(ang) * ARM_OFFSET;
         ch->localY = std::sin(ang) * ARM_OFFSET;
         auto a = arm->addComponent<BossArm>();
-        a->coreT = core->transform; a->flames = flames; a->mines = mines;
+        a->coreT = core->transform; a->target = hurt; a->hp = hp;
         a->pairA = (i % 2 == 0);
         arms.push_back(a);
     }
@@ -658,10 +673,8 @@ void buildBulletHell(Scene& scene) {
     pool->setTarget(hurt);
     for (BossArm* a : arms) a->pool = pool;
 
-    // Onda de choque (encima del combate).
     scene.createGameObject("Shock")->addComponent<ShockwaveView>()->boss = state;
 
-    // Temporizador de Fase 1: cuenta atras que, si se agota, fuerza la transicion.
     auto timer = logicObj->addComponent<PhaseTimer>();
     timer->duration = PHASE1_TIME;
     timer->onComplete = [state]() { state->onPhase1TimerEnd(); };
@@ -674,28 +687,31 @@ void buildBulletHell(Scene& scene) {
         t->screenSpace = true; t->pixelSize = size; t->centered = center;
         return t;
     };
-    auto statusText = mkText("Status", 640.0f, 24.0f, 4.0f, true);
+    auto statusText = mkText("Status", 640.0f, 22.0f, 4.0f, true);
     statusText->setText("SUPRESION");
-    auto timerText = mkText("Timer", 640.0f, 64.0f, 6.0f, true);
-    auto heatText  = mkText("Heat", 24.0f, 24.0f, 3.0f, false);
+    auto timerText = mkText("Timer", 640.0f, 62.0f, 6.0f, true);
+    auto heatText  = mkText("Heat", 24.0f, 22.0f, 3.0f, false);
     heatText->setColor(255, 140, 40);
+    auto nexusText = mkText("Nexus", 640.0f, 104.0f, 2.0f, true); // subtitulo NEXUS-9
+    nexusText->setColor(150, 200, 220);
 
-    // Fundido de entrada (el ULTIMO).
     auto fade = scene.createGameObject("Fade")->addComponent<ScreenFade>();
     fade->fadeIn(0.6f);
 
     // Cablear el jefe.
     state->timer = timer; state->statusText = statusText; state->timerText = timerText;
-    state->heatText = heatText; state->fade = fade; state->player = player; state->hp = hp;
-    state->pool = pool; state->decals = decals; state->coreSpin = coreSpin; state->coreT = core->transform;
+    state->heatText = heatText; state->nexusText = nexusText; state->fade = fade;
+    state->player = player; state->hp = hp; state->pool = pool; state->decals = decals;
+    state->coreSpin = coreSpin; state->coreT = core->transform;
     state->flames = flames; state->mines = mines; state->steam = steam; state->arms = arms;
     state->startX = player->transform->x; state->startY = player->transform->y;
+    state->introLine(); // muestra la primera linea de NEXUS-9
 
     // GORE + MUERTE: estalla, mancha permanente y pierde TODO el progreso.
     hp->onDeath = [player, fx, decals, state]() {
+        Audio::play("death"); // PRIMERO: el sonido suena justo al detectar el impacto
         float dx = player->transform->x, dy = player->transform->y;
         fx->emitBurst(dx, dy, 48);
-        Audio::play("death");
         for (int i = 0; i < 10; ++i) {
             float ox = frand(-30.0f, 30.0f), oy = frand(-30.0f, 30.0f);
             float s = frand(8.0f, 24.0f);

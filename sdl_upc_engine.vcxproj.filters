@@ -72,6 +72,9 @@
     <ClCompile Include="game\Platformer.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
+    <ClCompile Include="game\Sector1.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
     <ClCompile Include="game\Shooter.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
@@ -165,6 +168,9 @@
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="game\Platformer.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
+    <ClInclude Include="game\Sector1.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="game\Shooter.h">
