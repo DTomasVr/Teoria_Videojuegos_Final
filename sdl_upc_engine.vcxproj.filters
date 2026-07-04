@@ -173,6 +173,9 @@
     <ClInclude Include="game\Sector1.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
+    <ClInclude Include="game\SceneFlow.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
     <ClInclude Include="game\Shooter.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>

@@ -73,7 +73,9 @@ void TextRenderer::render() {
     // Punto de inicio y escala del pixel de fuente segun el espacio de coordenadas.
     float startX, startY, px;
     if (screenSpace) {
-        startX = t->x; startY = t->y; px = pixelSize;
+        int ow = 0, oh = 0;
+        SDL_GetCurrentRenderOutputSize(ren, &ow, &oh); // ancla al tamano real (pantalla completa)
+        startX = ow * anchorX + t->x; startY = oh * anchorY + t->y; px = pixelSize;
     } else {
         Camera* cam = gameObject->scene->getActiveCamera();
         float zoom = cam ? cam->getZoom() : 1.0f;

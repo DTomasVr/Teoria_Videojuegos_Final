@@ -20,7 +20,18 @@ void ScreenFade::setAlpha(float a01) {
     alpha = a01; target = a01; active = false;
 }
 
+void ScreenFade::blink(float outSeconds, float inSeconds) {
+    blinking = true; blinkStage = 0; active = false; // el parpadeo manda sobre el fundido normal
+    blinkOut = (outSeconds > 0.0f) ? (1.0f / outSeconds) : 1e9f;
+    blinkIn  = (inSeconds  > 0.0f) ? (1.0f / inSeconds)  : 1e9f;
+}
+
 void ScreenFade::update(float dt) {
+    if (blinking) { // respawn: a negro y de vuelta, de una sola pasada
+        if (blinkStage == 0) { alpha += blinkOut * dt; if (alpha >= 1.0f) { alpha = 1.0f; blinkStage = 1; } }
+        else                 { alpha -= blinkIn  * dt; if (alpha <= 0.0f) { alpha = 0.0f; blinking = false; } }
+        return;
+    }
     if (!active) return;
     if (alpha < target) { alpha += speed * dt; if (alpha >= target) alpha = target; }
     else                { alpha -= speed * dt; if (alpha <= target) alpha = target; }

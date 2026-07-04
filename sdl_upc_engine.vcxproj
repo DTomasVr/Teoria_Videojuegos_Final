@@ -72,6 +72,7 @@
     <ClInclude Include="engine\Transform.h" />
     <ClInclude Include="game\BulletHell.h" />
     <ClInclude Include="game\Platformer.h" />
+    <ClInclude Include="game\SceneFlow.h" />
     <ClInclude Include="game\Sector1.h" />
     <ClInclude Include="game\Shooter.h" />
     <ClInclude Include="game\TopDown.h" />

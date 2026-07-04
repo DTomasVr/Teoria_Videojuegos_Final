@@ -21,6 +21,10 @@ public:
     void setAlpha(float a01);     // fija la opacidad al instante (0..1)
     bool isFading() const { return active; }
 
+    // Parpadeo: sube a opaco en outSeconds y vuelve a transparente en inSeconds, de
+    // una vez (para el respawn del clon; luego se le encajaran las voces de NEXUS-9).
+    void blink(float outSeconds, float inSeconds);
+
     // Se dispara una vez cuando el fundido llega a su destino.
     std::function<void()> onComplete;
 
@@ -32,4 +36,8 @@ private:
     float target = 0.0f; // opacidad objetivo
     float speed  = 0.0f; // unidades de alpha por segundo
     bool  active = false;
+
+    bool  blinking = false; // parpadeo de respawn en curso
+    int   blinkStage = 0;   // 0 = subiendo a negro; 1 = volviendo
+    float blinkOut = 0.0f, blinkIn = 0.0f;
 };
