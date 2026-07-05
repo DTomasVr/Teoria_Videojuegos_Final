@@ -58,6 +58,9 @@ namespace {
     constexpr float ARM_TIP     = 55.0f;   // punta del brazo
     constexpr float ARM_HIT     = 30.0f;   // radio letal del brazo
     constexpr float CORE_BODY   = 92.0f;   // lado del collider solido del chasis
+    constexpr float ARM_SCALE    = 0.13f;  // el arte del brazo crecio ~1.7x: baja la escala
+    constexpr float WEAPON_R     = 178.0f; // radio del arma montada (cerca de la punta del brazo)
+    constexpr float WEAPON_SCALE = 0.17f;  // tamaño del arma en la punta
 
     // Rotacion segun calor: mas rapida cuanto mas calor. A partir del 30% de calor
     // el sentido de giro ademas ALTERNA (ver REVERSE_PERIOD abajo).
@@ -768,6 +771,45 @@ public:
 };
 
 // ----------------------------------------------------------------------------
+//  Barra de CALOR (GDD 7: el jefe no tiene HP, tiene un medidor de calor). Reutiliza
+//  el arte boos health bar: marco metalico + relleno naranja que crece con el calor
+//  (0..100) y vira a rojo. Se dibuja en espacio de PANTALLA, arriba y centrado.
+// ----------------------------------------------------------------------------
+class HeatBar : public Component {
+public:
+    BossRoom* boss = nullptr;
+    void awake() override {
+        frameTex = gameObject->scene->getAssets().loadTexture("assets/redacted/ui/heatbar_frame.png");
+        fillTex  = gameObject->scene->getAssets().loadTexture("assets/redacted/ui/heatbar_fill.png");
+    }
+    void render() override {
+        if (!boss) return;
+        SDL_Renderer* r = gameObject->scene->getRenderer();
+        int ow = 0, oh = 0; SDL_GetCurrentRenderOutputSize(r, &ow, &oh);
+        float fw = ow * 0.34f, fh = fw * (179.0f / 958.0f); // marco (958x179)
+        float cx = ow * 0.5f, cy = oh * 0.03f + fh * 0.5f;  // arriba, centrado
+        float frac = boss->heat / 100.0f; if (frac < 0.0f) frac = 0.0f; if (frac > 1.0f) frac = 1.0f;
+        // Relleno naranja->rojo dentro de la cavidad (proporciones del sprite de relleno).
+        if (fillTex && frac > 0.0f) {
+            float fillW = fw * (876.0f / 958.0f), fillH = fh * (106.0f / 179.0f);
+            float leftX = cx - fillW * 0.5f;
+            SDL_FRect src{ 0.0f, 0.0f, 876.0f * frac, 106.0f };
+            SDL_FRect dst{ leftX, cy - fillH * 0.5f, fillW * frac, fillH };
+            Uint8 g = (Uint8)(180.0f - 120.0f * frac); // mas rojo con mas calor
+            SDL_SetTextureColorMod(fillTex, 255, g, 40);
+            SDL_RenderTexture(r, fillTex, &src, &dst);
+            SDL_SetTextureColorMod(fillTex, 255, 255, 255);
+        }
+        if (frameTex) { // el marco encima, tapando los bordes del relleno
+            SDL_FRect dst{ cx - fw * 0.5f, cy - fh * 0.5f, fw, fh };
+            SDL_RenderTexture(r, frameTex, nullptr, &dst);
+        }
+    }
+private:
+    SDL_Texture* frameTex = nullptr; SDL_Texture* fillTex = nullptr;
+};
+
+// ----------------------------------------------------------------------------
 //  Placa de presion: en Fase 1 suma calor a pulsos al pisarla. En Fase 2 las placas
 //  quedan RECALENTADAS: pisarlas es LETAL (se tiñen de rojo incandescente).
 // ----------------------------------------------------------------------------
@@ -907,7 +949,7 @@ void buildBulletHell(Scene& scene) {
     std::vector<BossArm*> arms;
     for (int i = 0; i < ARM_COUNT; ++i) {
         GameObject* arm = scene.createGameObject("Arm");
-        arm->transform->scaleX = arm->transform->scaleY = 0.2f; // brazo hercules ~124px
+        arm->transform->scaleX = arm->transform->scaleY = ARM_SCALE;
         arm->addComponent<SpriteRenderer>((i % 2 == 0)
             ? "assets/redacted/boss/hercules_arm1.png"   // par A: brazo con sierra
             : "assets/redacted/boss/hercules_arm2.png"); // par B: brazo blindado
@@ -921,6 +963,20 @@ void buildBulletHell(Scene& scene) {
         a->coreT = core->transform; a->target = hurt; a->hp = hp;
         a->pairA = (i % 2 == 0);
         arms.push_back(a);
+
+        // Arma montada en la PUNTA del brazo: viaja y gira con el conjunto (ChildOf al
+        // core, mayor radio). El arte del arma apunta a +x, asi que localRotation=ang la
+        // orienta radialmente hacia AFUERA. pairA=minigun, pairB=lasergun.
+        GameObject* wep = scene.createGameObject("ArmWeapon");
+        wep->transform->scaleX = wep->transform->scaleY = WEAPON_SCALE;
+        wep->addComponent<SpriteRenderer>((i % 2 == 0)
+            ? "assets/redacted/boss/hercules_minigun.png"
+            : "assets/redacted/boss/hercules_lasergun.png");
+        auto wch = wep->addComponent<ChildOf>();
+        wch->setParent(core);
+        wch->localX = std::cos(ang) * WEAPON_R;
+        wch->localY = std::sin(ang) * WEAPON_R;
+        wch->localRotation = ang * 180.0f / PI; // arma horizontal: barril hacia afuera
     }
 
     // Pool de balas.
@@ -953,11 +1009,15 @@ void buildBulletHell(Scene& scene) {
     auto statusText = titleObj->addComponent<TextRenderer>();
     statusText->screenSpace = true; statusText->anchorX = 0.5f; statusText->anchorY = 0.5f;
     statusText->centered = true; statusText->pixelSize = 7.0f;
-    auto heatText  = mkText("Heat", 60.0f, 3.0f);
+    // El texto va DEBAJO de la barra de calor grafica (que ocupa la franja superior).
+    auto heatText  = mkText("Heat", 168.0f, 3.0f);
     heatText->setColor(255, 140, 40);
-    auto nexusText = mkText("Nexus", 96.0f, 2.0f); // subtitulo NEXUS-9
+    auto nexusText = mkText("Nexus", 206.0f, 2.0f); // subtitulo NEXUS-9
     nexusText->setColor(150, 200, 220);
-    auto timerText = mkText("Timer", 134.0f, 6.0f); // solo visible en debug (F1)
+    auto timerText = mkText("Timer", 250.0f, 6.0f); // solo visible en debug (F1)
+
+    // Barra de calor (reemplaza la barra de vida: el jefe se mide por calor, GDD 7).
+    scene.createGameObject("HeatBar")->addComponent<HeatBar>()->boss = state;
 
     auto fade = scene.createGameObject("Fade")->addComponent<ScreenFade>();
     fade->fadeIn(0.6f);
