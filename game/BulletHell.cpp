@@ -215,6 +215,7 @@ inline void spawnMuzzle(Scene& scene, float x, float y, float rotDeg) {
 // ----------------------------------------------------------------------------
 class RoomRenderer : public Component {
 public:
+    void awake() override { mapTex = gameObject->scene->getAssets().loadTexture("assets/redacted/map.jpeg"); }
     void render() override {
         SDL_Renderer* r = gameObject->scene->getRenderer();
         Camera* cam = gameObject->scene->getActiveCamera();
@@ -223,9 +224,12 @@ public:
                    cam->worldToScreen( HALF_W,  HALF_H, sRx, sBy); }
         else { sLx = -HALF_W; sTy = -HALF_H; sRx = HALF_W; sBy = HALF_H; }
         SDL_FRect floor{ sLx, sTy, sRx - sLx, sBy - sTy };
-        SDL_SetRenderDrawColor(r, 26, 26, 30, 255); SDL_RenderFillRect(r, &floor);
+        if (mapTex) SDL_RenderTexture(r, mapTex, nullptr, &floor);       // fondo del mapa
+        else { SDL_SetRenderDrawColor(r, 26, 26, 30, 255); SDL_RenderFillRect(r, &floor); }
         SDL_SetRenderDrawColor(r, 120, 120, 130, 255); SDL_RenderRect(r, &floor);
     }
+private:
+    SDL_Texture* mapTex = nullptr;
 };
 
 // ----------------------------------------------------------------------------
@@ -789,7 +793,14 @@ public:
         float fw = ow * 0.34f, fh = fw * (179.0f / 958.0f); // marco (958x179)
         float cx = ow * 0.5f, cy = oh * 0.03f + fh * 0.5f;  // arriba, centrado
         float frac = boss->heat / 100.0f; if (frac < 0.0f) frac = 0.0f; if (frac > 1.0f) frac = 1.0f;
-        // Relleno naranja->rojo dentro de la cavidad (proporciones del sprite de relleno).
+        // El MARCO va primero: su cavidad (pantalla oscura) es OPACA, asi que si fuese
+        // encima taparia el relleno por completo (por eso antes no se veia llenar).
+        if (frameTex) {
+            SDL_FRect dst{ cx - fw * 0.5f, cy - fh * 0.5f, fw, fh };
+            SDL_RenderTexture(r, frameTex, nullptr, &dst);
+        }
+        // Relleno naranja->rojo ENCIMA, recortado a la fraccion de calor (izq->der): la
+        // parte visible del sprite crece con el calor tanto en el recorte como en el dst.
         if (fillTex && frac > 0.0f) {
             float fillW = fw * (876.0f / 958.0f), fillH = fh * (106.0f / 179.0f);
             float leftX = cx - fillW * 0.5f;
@@ -799,10 +810,6 @@ public:
             SDL_SetTextureColorMod(fillTex, 255, g, 40);
             SDL_RenderTexture(r, fillTex, &src, &dst);
             SDL_SetTextureColorMod(fillTex, 255, 255, 255);
-        }
-        if (frameTex) { // el marco encima, tapando los bordes del relleno
-            SDL_FRect dst{ cx - fw * 0.5f, cy - fh * 0.5f, fw, fh };
-            SDL_RenderTexture(r, frameTex, nullptr, &dst);
         }
     }
 private:

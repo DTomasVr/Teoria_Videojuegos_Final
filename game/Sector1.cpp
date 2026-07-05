@@ -243,6 +243,7 @@ inline void spawnExplosion(Scene& scene, float x, float y, float worldSize) {
 // ----------------------------------------------------------------------------
 class RoomRenderer : public Component {
 public:
+    void awake() override { mapTex = gameObject->scene->getAssets().loadTexture("assets/redacted/map.jpeg"); }
     void render() override {
         SDL_Renderer* r = gameObject->scene->getRenderer();
         Camera* cam = gameObject->scene->getActiveCamera();
@@ -251,9 +252,12 @@ public:
                    cam->worldToScreen( HALF_W,  HALF_H, sRx, sBy); }
         else { sLx = -HALF_W; sTy = -HALF_H; sRx = HALF_W; sBy = HALF_H; }
         SDL_FRect floor{ sLx, sTy, sRx - sLx, sBy - sTy };
-        SDL_SetRenderDrawColor(r, 30, 28, 26, 255); SDL_RenderFillRect(r, &floor);
+        if (mapTex) SDL_RenderTexture(r, mapTex, nullptr, &floor);       // fondo del mapa
+        else { SDL_SetRenderDrawColor(r, 30, 28, 26, 255); SDL_RenderFillRect(r, &floor); }
         SDL_SetRenderDrawColor(r, 110, 105, 100, 255); SDL_RenderRect(r, &floor);
     }
+private:
+    SDL_Texture* mapTex = nullptr;
 };
 
 // ----------------------------------------------------------------------------
