@@ -79,6 +79,11 @@ namespace {
 
     constexpr float PI = 3.14159265f;
 
+    // Region de SUELO dentro de map.jpeg (1024x1024): recorta el marco/paredes pintados
+    // para que el area jugable sea SOLO suelo (asi el jugador no pisa paredes y las
+    // placas no quedan medio sobre la pared). Tambien es de donde salen los escombros.
+    constexpr float MAP_FX0 = 150.0f, MAP_FY0 = 145.0f, MAP_FX1 = 885.0f, MAP_FY1 = 880.0f;
+
     float frand(float a, float b) { return a + (b - a) * ((float)std::rand() / (float)RAND_MAX); }
 }
 
@@ -252,7 +257,8 @@ public:
                    cam->worldToScreen( HALF_W,  HALF_H, sRx, sBy); }
         else { sLx = -HALF_W; sTy = -HALF_H; sRx = HALF_W; sBy = HALF_H; }
         SDL_FRect floor{ sLx, sTy, sRx - sLx, sBy - sTy };
-        if (mapTex) SDL_RenderTexture(r, mapTex, nullptr, &floor);       // fondo del mapa
+        SDL_FRect mapSrc{ MAP_FX0, MAP_FY0, MAP_FX1 - MAP_FX0, MAP_FY1 - MAP_FY0 };
+        if (mapTex) SDL_RenderTexture(r, mapTex, &mapSrc, &floor);       // solo el suelo (sin paredes pintadas)
         else { SDL_SetRenderDrawColor(r, 30, 28, 26, 255); SDL_RenderFillRect(r, &floor); }
         SDL_SetRenderDrawColor(r, 110, 105, 100, 255); SDL_RenderRect(r, &floor);
     }
@@ -656,12 +662,17 @@ private:
 class DebrisBlock : public Component {
 public:
     float w = 120.0f, h = 180.0f;
+    void awake() override { mapTex = gameObject->scene->getAssets().loadTexture("assets/redacted/map.jpeg"); }
     void render() override {
         Scene& s = *gameObject->scene;
         float x = gameObject->transform->x, y = gameObject->transform->y;
-        Shapes::fillRect(s, x, y, w, h, 70, 66, 60, 255);
-        Shapes::outlineRect(s, x, y, w, h, 130, 124, 116, 255);
+        // Trozo FIJO del suelo (siempre la misma seccion) recortado del mapa.
+        SDL_FRect src{ 430.0f, 360.0f, 130.0f, 190.0f };
+        drawWorldFrame(s, mapTex, x, y, w, h, &src, 0.0f, 255, 255, 255, 255);
+        Shapes::outlineRect(s, x, y, w, h, 130, 124, 116, 255); // borde para leerlo como obstaculo
     }
+private:
+    SDL_Texture* mapTex = nullptr;
 };
 
 // ----------------------------------------------------------------------------

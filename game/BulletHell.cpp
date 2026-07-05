@@ -100,6 +100,10 @@ namespace {
 
     constexpr float PI = 3.14159265f;
 
+    // Region de SUELO dentro de map.jpeg (1024x1024): recorta el marco/paredes pintados
+    // para que el area jugable sea SOLO suelo. Los bloques que caen se recortan de aqui.
+    constexpr float MAP_FX0 = 150.0f, MAP_FY0 = 145.0f, MAP_FX1 = 885.0f, MAP_FY1 = 880.0f;
+
     float frand(float a, float b) { return a + (b - a) * ((float)std::rand() / (float)RAND_MAX); }
     float randX() { return frand(-HALF_W + 60.0f, HALF_W - 60.0f); }
     float randY() { return frand(-HALF_H + 60.0f, HALF_H - 60.0f); }
@@ -224,7 +228,8 @@ public:
                    cam->worldToScreen( HALF_W,  HALF_H, sRx, sBy); }
         else { sLx = -HALF_W; sTy = -HALF_H; sRx = HALF_W; sBy = HALF_H; }
         SDL_FRect floor{ sLx, sTy, sRx - sLx, sBy - sTy };
-        if (mapTex) SDL_RenderTexture(r, mapTex, nullptr, &floor);       // fondo del mapa
+        SDL_FRect mapSrc{ MAP_FX0, MAP_FY0, MAP_FX1 - MAP_FX0, MAP_FY1 - MAP_FY0 };
+        if (mapTex) SDL_RenderTexture(r, mapTex, &mapSrc, &floor);       // solo el suelo (sin paredes pintadas)
         else { SDL_SetRenderDrawColor(r, 26, 26, 30, 255); SDL_RenderFillRect(r, &floor); }
         SDL_SetRenderDrawColor(r, 120, 120, 130, 255); SDL_RenderRect(r, &floor);
     }
@@ -518,12 +523,17 @@ private:
 class SolidBlock : public Component {
 public:
     float size = 80.0f;
+    float srcX = 0.0f, srcY = 0.0f; // recorte del mapa (lo fija FallingBlocks al aterrizar)
+    void awake() override { mapTex = gameObject->scene->getAssets().loadTexture("assets/redacted/map.jpeg"); }
     void render() override {
         Scene& s = *gameObject->scene;
         float x = gameObject->transform->x, y = gameObject->transform->y;
-        Shapes::fillRect(s, x, y, size, size, 58, 56, 62, 255);
+        SDL_FRect src{ srcX, srcY, size, size }; // trozo de suelo que quedo como obstaculo
+        drawWorldFrame(s, mapTex, x, y, size, size, &src, 0.0f, 255, 255, 255, 255);
         Shapes::outlineRect(s, x, y, size, size, 110, 106, 114, 255);
     }
+private:
+    SDL_Texture* mapTex = nullptr;
 };
 
 // ----------------------------------------------------------------------------
@@ -537,6 +547,7 @@ public:
     CircleCollider* target = nullptr;
     Health*         hp = nullptr;
 
+    void awake() override { mapTex = gameObject->scene->getAssets().loadTexture("assets/redacted/map.jpeg"); }
     void enable() { active = true; spawnTimer = 2.0f; }
     void reset() {
         active = false; falling.clear();
@@ -560,14 +571,16 @@ public:
             float frac = 1.0f - f.timer / FALL_TIME; if (frac < 0.0f) frac = 0.0f;
             Shapes::fillCircle(s, f.x, f.y, f.size * (0.3f + 0.5f * frac), 0, 0, 0, 150); // sombra que crece
             float topY = -HALF_H, cy = topY + (f.y - topY) * frac;                        // bloque descendiendo
-            Shapes::fillRect(s, f.x, cy, f.size, f.size, 58, 56, 62, 255);
+            SDL_FRect src{ f.srcX, f.srcY, f.size, f.size }; // trozo de suelo que cae
+            drawWorldFrame(s, mapTex, f.x, cy, f.size, f.size, &src, 0.0f, 255, 255, 255, 255);
         }
     }
 private:
     static constexpr float FALL_TIME = 1.4f;
-    struct Fall { float x = 0, y = 0, size = 0, timer = 0; };
+    struct Fall { float x = 0, y = 0, size = 0, timer = 0, srcX = 0, srcY = 0; };
     std::vector<Fall> falling;
     std::vector<GameObject*> landed;
+    SDL_Texture* mapTex = nullptr;
     bool active = false; float spawnTimer = 0.0f;
 
     void startFall() {
@@ -576,6 +589,9 @@ private:
         f.x = frand(-HALF_W + f.size, HALF_W - f.size);
         f.y = frand(-HALF_H + f.size, HALF_H - f.size);
         f.timer = FALL_TIME;
+        // Recorte ALEATORIO del suelo, solo de la parte MEDIA del mapa (evita las paredes).
+        f.srcX = frand(MAP_FX0 + 40.0f, MAP_FX1 - 40.0f - f.size);
+        f.srcY = frand(MAP_FY0 + 40.0f, MAP_FY1 - 40.0f - f.size);
         falling.push_back(f);
     }
     void land(const Fall& f) {
@@ -585,7 +601,8 @@ private:
         GameObject* b = gameObject->scene->createGameObject("Block");
         b->transform->x = f.x; b->transform->y = f.y;
         auto bc = b->addComponent<BoxCollider>(); bc->width = f.size; bc->height = f.size;
-        b->addComponent<SolidBlock>()->size = f.size;
+        auto sb = b->addComponent<SolidBlock>();
+        sb->size = f.size; sb->srcX = f.srcX; sb->srcY = f.srcY;
         landed.push_back(b);
     }
 };
