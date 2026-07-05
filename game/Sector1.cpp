@@ -13,6 +13,9 @@
 #include "../engine/Component.h"
 #include "../engine/Transform.h"
 #include "../engine/SpriteRenderer.h"
+#include "../engine/SpriteAnimator.h"
+#include "../engine/Lifetime.h"
+#include "../engine/AssetManager.h"
 #include "../engine/RigidBody2D.h"
 #include "../engine/BoxCollider.h"
 #include "../engine/CircleCollider.h"
@@ -39,6 +42,7 @@ namespace {
     constexpr float PLAYER_SPEED   = 260.0f;
     constexpr float HURTBOX_RADIUS = 8.0f;
     constexpr float BODY_SIZE      = 44.0f;
+    constexpr float PLAYER_SCALE   = 0.25f; // celda 256px -> ~64px en el mundo
     constexpr float DASH_SPEED    = 900.0f, DASH_DURATION = 0.12f;
     constexpr float DASH_IFRAMES  = 0.12f,  DASH_COOLDOWN = 0.5f;
 
@@ -74,8 +78,6 @@ namespace {
     constexpr float SURVIVE_TIME = 40.0f, PHASE2_AT = 20.0f;
 
     constexpr float PI = 3.14159265f;
-    const char* SHIPS_SHEET = "assets/kenney_pixelshmup/Tilemap/ships_packed.png";
-    constexpr int SHIP_CELL = 32;
 
     float frand(float a, float b) { return a + (b - a) * ((float)std::rand() / (float)RAND_MAX); }
 }
@@ -84,6 +86,157 @@ namespace {
 // para NO chocar con clases del mismo nombre en otras escenas (p.ej. RoomRenderer
 // tambien existe en BulletHell.cpp).
 namespace {
+
+// Configura el sprite ANIMADO del clon. Hojas 4x4 (fila = direccion, columnas = frames):
+//  - idle.png   992x1024, celda 248x256
+//  - run.png    1008x1008, celda 252x252 (ortogonales)
+//  - run_diag.png 1008x1008, celda 252x252 (diagonales)
+// Las hojas -sheet_render corregidas en Aseprite ya NO tienen el swap up/down de antes:
+// las tres comparten distribucion de filas 0=abajo, 1=arriba, 2=derecha, 3=izquierda
+// (en run_diag: 0=arriba-derecha, 1=arriba-izquierda, 2=abajo-derecha, 3=abajo-izquierda).
+inline void setupPlayerAnim(GameObject* player) {
+    player->transform->scaleX = player->transform->scaleY = PLAYER_SCALE;
+    player->addComponent<SpriteRenderer>(); // sin textura: la pone el animator
+    auto anim = player->addComponent<SpriteAnimator>(252, 252, 4);
+    const char* IDLE = "assets/redacted/player/idle.png";
+    const char* RUN  = "assets/redacted/player/run.png";
+    const char* DIAG = "assets/redacted/player/run_diag.png";
+    const float IDLE_FPS = 3.0f, RUN_FPS = 9.0f; // idle mas lento (respiracion)
+    anim->addRowAnimation("idle_down",  IDLE, 248, 256, 0, IDLE_FPS);
+    anim->addRowAnimation("idle_up",    IDLE, 248, 256, 1, IDLE_FPS);
+    anim->addRowAnimation("idle_right", IDLE, 248, 256, 2, IDLE_FPS);
+    anim->addRowAnimation("idle_left",  IDLE, 248, 256, 3, IDLE_FPS);
+    anim->addRowAnimation("run_down",  RUN, 252, 252, 0, RUN_FPS);
+    anim->addRowAnimation("run_up",    RUN, 252, 252, 1, RUN_FPS);
+    anim->addRowAnimation("run_right", RUN, 252, 252, 2, RUN_FPS);
+    anim->addRowAnimation("run_left",  RUN, 252, 252, 3, RUN_FPS);
+    anim->addRowAnimation("run_up_right",   DIAG, 252, 252, 0, RUN_FPS);
+    anim->addRowAnimation("run_up_left",    DIAG, 252, 252, 1, RUN_FPS);
+    anim->addRowAnimation("run_down_right", DIAG, 252, 252, 2, RUN_FPS);
+    anim->addRowAnimation("run_down_left",  DIAG, 252, 252, 3, RUN_FPS);
+    anim->play("idle_down");
+}
+
+// ----------------------------------------------------------------------------
+//  Montura de dos piezas: base ESTATICA + pieza superior que ROTA con el aim del
+//  objeto (transform->rotation). Sirve para torretas (base+cañon) y lanzallamas
+//  (base+boquilla). Dibuja en el mundo con la camara; sigue al objeto si se mueve.
+// ----------------------------------------------------------------------------
+class TwoPartMount : public Component {
+public:
+    void setup(const char* basePath, const char* topPath, float baseScale, float topScale) {
+        base = gameObject->scene->getAssets().loadTexture(basePath);
+        top  = gameObject->scene->getAssets().loadTexture(topPath);
+        bScale = baseScale; tScale = topScale;
+    }
+    void render() override {
+        Camera* cam = gameObject->scene->getActiveCamera();
+        float zoom = cam ? cam->getZoom() : 1.0f;
+        float sx, sy;
+        if (cam) cam->worldToScreen(gameObject->transform->x, gameObject->transform->y, sx, sy);
+        else { sx = gameObject->transform->x; sy = gameObject->transform->y; }
+        SDL_Renderer* r = gameObject->scene->getRenderer();
+        drawTex(r, base, sx, sy, bScale * zoom, 0.0f);                            // base sin rotar
+        drawTex(r, top,  sx, sy, tScale * zoom, gameObject->transform->rotation);  // pieza rotada
+    }
+private:
+    SDL_Texture* base = nullptr; SDL_Texture* top = nullptr;
+    float bScale = 0.1f, tScale = 0.1f;
+    static void drawTex(SDL_Renderer* r, SDL_Texture* t, float cx, float cy, float scale, float rotDeg) {
+        if (!t) return;
+        float w = 0, h = 0; SDL_GetTextureSize(t, &w, &h);
+        SDL_FRect dst{ cx - w * scale * 0.5f, cy - h * scale * 0.5f, w * scale, h * scale };
+        SDL_RenderTextureRotated(r, t, nullptr, &dst, rotDeg, nullptr, SDL_FLIP_NONE);
+    }
+};
+
+inline void addTurretArt(GameObject* t, bool mk4) {
+    auto art = t->addComponent<TwoPartMount>();
+    // El cañon MK4 se rehizo mas largo (1071px de alto vs 676 antes): baja su escala
+    // (~0.12*676/1071) para conservar el largo en pantalla que ya estaba ajustado.
+    if (mk4) art->setup("assets/redacted/turret/mk4_base.png", "assets/redacted/turret/mk4_cannon.png", 0.13f, 0.076f);
+    else     art->setup("assets/redacted/turret/mk2_base.png", "assets/redacted/turret/mk2_cannon.png", 0.11f, 0.11f);
+}
+
+inline void addFlamethrowerArt(GameObject* fl) {
+    auto art = fl->addComponent<TwoPartMount>(); // base + boquilla (la boquilla apunta ABAJO)
+    art->setup("assets/redacted/hazard/flamethrower_base.png", "assets/redacted/hazard/flamethrower_nozzle.png", 0.13f, 0.11f);
+}
+
+// Dibuja una textura suelta en coordenadas de MUNDO (con la camara), centrada.
+inline void drawWorldTex(Scene& scene, SDL_Texture* t, float wx, float wy, float scale, float rotDeg) {
+    if (!t) return;
+    Camera* cam = scene.getActiveCamera();
+    float zoom = cam ? cam->getZoom() : 1.0f;
+    float sx, sy;
+    if (cam) cam->worldToScreen(wx, wy, sx, sy); else { sx = wx; sy = wy; }
+    float w = 0, h = 0; SDL_GetTextureSize(t, &w, &h);
+    float s = scale * zoom;
+    SDL_FRect dst{ sx - w * s * 0.5f, sy - h * s * 0.5f, w * s, h * s };
+    SDL_RenderTextureRotated(scene.getRenderer(), t, nullptr, &dst, rotDeg, nullptr, SDL_FLIP_NONE);
+}
+
+// Dibuja un FRAME (recorte opcional) de una textura en el mundo, con tamaño de mundo
+// explicito + rotacion + tinte + alpha. Lo usan fuego, destellos y marcadores que
+// necesitan recortar una tira y/o modular alpha (drawWorldTex no lo permite).
+inline void drawWorldFrame(Scene& scene, SDL_Texture* t, float wx, float wy,
+                           float worldW, float worldH, const SDL_FRect* src,
+                           float rotDeg, int r, int g, int b, int a) {
+    if (!t) return;
+    Camera* cam = scene.getActiveCamera();
+    float zoom = cam ? cam->getZoom() : 1.0f;
+    float sx, sy;
+    if (cam) cam->worldToScreen(wx, wy, sx, sy); else { sx = wx; sy = wy; }
+    float w = worldW * zoom, h = worldH * zoom;
+    SDL_FRect dst{ sx - w * 0.5f, sy - h * 0.5f, w, h };
+    SDL_SetTextureColorMod(t, (Uint8)r, (Uint8)g, (Uint8)b);
+    SDL_SetTextureAlphaMod(t, (Uint8)a);
+    SDL_RenderTextureRotated(scene.getRenderer(), t, src, &dst, rotDeg, nullptr, SDL_FLIP_NONE);
+    SDL_SetTextureColorMod(t, 255, 255, 255);
+    SDL_SetTextureAlphaMod(t, 255);
+}
+
+// Destello de disparo: reproduce fx/muzzle.png (3 frames de 670px) UNA vez, orientado
+// hacia el disparo, y se autodestruye (Lifetime). Es un componente propio porque el
+// SpriteRenderer no rota.
+constexpr int   MUZZLE_FRAMES = 3;
+constexpr float MUZZLE_FPS = 26.0f, MUZZLE_SIZE = 46.0f;
+
+class MuzzleFlash : public Component {
+public:
+    SDL_Texture* tex = nullptr; float rot = 0.0f;
+    void update(float dt) override { clock += dt; }
+    void render() override {
+        int f = (int)(clock * MUZZLE_FPS); if (f >= MUZZLE_FRAMES) f = MUZZLE_FRAMES - 1;
+        SDL_FRect src{ (float)(f * 670), 0.0f, 670.0f, 670.0f };
+        drawWorldFrame(*gameObject->scene, tex, gameObject->transform->x, gameObject->transform->y,
+                       MUZZLE_SIZE, MUZZLE_SIZE, &src, rot, 255, 255, 255, 255);
+    }
+private:
+    float clock = 0.0f;
+};
+
+inline void spawnMuzzle(Scene& scene, float x, float y, float rotDeg) {
+    GameObject* g = scene.createGameObject("Muzzle");
+    g->transform->x = x; g->transform->y = y;
+    auto m = g->addComponent<MuzzleFlash>();
+    m->tex = scene.getAssets().loadTexture("assets/redacted/fx/muzzle.png");
+    m->rot = rotDeg;
+    g->addComponent<Lifetime>()->seconds = (float)MUZZLE_FRAMES / MUZZLE_FPS + 0.02f;
+}
+
+// Explosion de un solo uso: hoja de 6 frames que se reproduce y el objeto se
+// autodestruye (Lifetime). worldSize = diametro deseado en el mundo.
+inline void spawnExplosion(Scene& scene, float x, float y, float worldSize) {
+    GameObject* e = scene.createGameObject("Explosion");
+    e->transform->x = x; e->transform->y = y;
+    e->transform->scaleX = e->transform->scaleY = worldSize / 768.0f;
+    e->addComponent<SpriteRenderer>(); // textura la pone el animator
+    auto anim = e->addComponent<SpriteAnimator>(768, 768, 6);
+    anim->addStripAnimation("boom", "assets/redacted/fx/explosion.png", 768, 768, 18.0f, false);
+    anim->play("boom");
+    e->addComponent<Lifetime>()->seconds = 6.0f / 18.0f + 0.05f; // dura lo que la animacion
+}
 
 // ----------------------------------------------------------------------------
 //  Suelo y contorno de la sala (hormigon oscuro).
@@ -131,10 +284,30 @@ public:
         }
         dashPrev = dashKey;
 
+        bool moving = (len > 0.0f) || (dashT > 0.0f);
         if (dashT > 0.0f) { rb->velocityX = ddx * DASH_SPEED; rb->velocityY = ddy * DASH_SPEED; dashT -= dt; }
         else { rb->velocityX = ix * PLAYER_SPEED; rb->velocityY = iy * PLAYER_SPEED; }
         if (cd > 0.0f) cd -= dt;
 
+        // Animacion: correr tiene 8 direcciones (ortogonales + diagonales); en reposo
+        // solo 4 (la hoja idle no trae diagonales) -> se usa el eje cardinal dominante.
+        if (len > 0.0f) {
+            const bool L = ix < -0.01f, R = ix > 0.01f, U = iy < -0.01f, D = iy > 0.01f;
+            if      (U && R) runDir = "up_right";
+            else if (U && L) runDir = "up_left";
+            else if (D && R) runDir = "down_right";
+            else if (D && L) runDir = "down_left";
+            else if (R)      runDir = "right";
+            else if (L)      runDir = "left";
+            else if (U)      runDir = "up";
+            else             runDir = "down";
+            if (std::fabs(ix) > std::fabs(iy)) idleDir = (ix < 0.0f) ? "left" : "right";
+            else                               idleDir = (iy < 0.0f) ? "up" : "down";
+        }
+        if (auto anim = gameObject->getComponent<SpriteAnimator>())
+            anim->play(moving ? ("run_" + runDir) : ("idle_" + idleDir));
+
+        // Tinte de invulnerabilidad (se aplica sobre el sprite animado).
         if (auto sr = gameObject->getComponent<SpriteRenderer>()) {
             if (hp && hp->isInvulnerable()) sr->setColor(120, 200, 255, 180);
             else                            sr->setColor(255, 255, 255, 255);
@@ -147,6 +320,7 @@ public:
 private:
     float lastX = 0.0f, lastY = 1.0f, ddx = 0.0f, ddy = 1.0f, dashT = 0.0f, cd = 0.0f;
     bool dashPrev = false;
+    std::string runDir = "down", idleDir = "down";
 };
 
 // ----------------------------------------------------------------------------
@@ -221,6 +395,7 @@ private:
         float ang = std::atan2(aimY, aimX);
         pool->spawn(ox, oy, std::cos(ang) * TURRET_BSPEED, std::sin(ang) * TURRET_BSPEED,
                     BULLET_RADIUS, BULLET_LIFE);
+        spawnMuzzle(*gameObject->scene, ox + aimX * 48.0f, oy + aimY * 48.0f, ang * 180.0f / PI);
     }
     void fire() { // rafaga en abanico
         if (!pool) return;
@@ -231,6 +406,7 @@ private:
             pool->spawn(ox, oy, std::cos(ang) * TURRET_BSPEED, std::sin(ang) * TURRET_BSPEED,
                         BULLET_RADIUS, BULLET_LIFE);
         }
+        spawnMuzzle(*gameObject->scene, ox + aimX * 48.0f, oy + aimY * 48.0f, base * 180.0f / PI);
     }
 };
 
@@ -248,6 +424,8 @@ public:
     bool  armed = false;
     float interval = NUKE_INTERVAL; // cadencia (la Camara 03 la acelera por fase)
 
+    void awake() override { siteTex = gameObject->scene->getAssets().loadTexture("assets/redacted/hazard/nuke_site.png"); }
+
     void setOffset(float t) { offset = t; timer = t; }
     void disarm() { armed = false; timer = offset; flash = 0.0f; } // conserva el desfase al reintentar
 
@@ -260,30 +438,28 @@ public:
     void render() override {
         Scene& s = *gameObject->scene;
         float x = gameObject->transform->x, y = gameObject->transform->y;
-        // Marcador de la zona (siempre visible: "marcada desde el inicio").
-        Shapes::outlineCircle(s, x, y, NUKE_RADIUS, 150, 40, 40, armed ? 120 : 70);
+        // Marcador de la zona con el sprite nuke_site (siempre visible: "marcada desde
+        // el inicio"): mas tenue si no esta armada, brillante y pulsante en el aviso.
+        int a = armed ? 200 : 110;
         if (armed) {
             float toDet = interval - timer;
-            if (toDet <= NUKE_WARN) {
-                float pulse = 0.5f + 0.5f * std::sin(timer * 18.0f);
-                Shapes::fillCircle(s, x, y, NUKE_RADIUS, 200, 40, 20, (int)(30 + 90 * pulse));
-            }
+            if (toDet <= NUKE_WARN) { float pulse = 0.5f + 0.5f * std::sin(timer * 18.0f); a = (int)(150 + 105 * pulse); }
         }
+        drawWorldFrame(s, siteTex, x, y, NUKE_RADIUS * 2.0f, NUKE_RADIUS * 2.0f, nullptr, 0.0f, 255, 255, 255, a);
         if (flash > 0.0f) Shapes::fillCircle(s, x, y, NUKE_RADIUS, 255, 230, 180, (int)(200 * flash));
     }
 private:
+    SDL_Texture* siteTex = nullptr;
     float timer = 0.0f, flash = 0.0f, offset = 0.0f;
     void detonate() {
         float x = gameObject->transform->x, y = gameObject->transform->y;
         if (target && hp && Collision::pointInCircle(target->centerX(), target->centerY(), x, y, NUKE_RADIUS))
             hp->kill();
         if (fx) fx->emitBurst(x, y, 30);
-        if (decals)
-            for (int i = 0; i < 16; ++i) {
-                float ox = frand(-NUKE_RADIUS * 0.7f, NUKE_RADIUS * 0.7f);
-                float oy = frand(-NUKE_RADIUS * 0.7f, NUKE_RADIUS * 0.7f);
-                decals->stampRect(x + ox, y + oy, frand(10.0f, 26.0f), frand(10.0f, 26.0f), 16, 12, 14, 220);
-            }
+        spawnExplosion(*gameObject->scene, x, y, NUKE_RADIUS * 2.4f); // sprite de explosion
+        if (decals) // crater persistente con sprite real (queda estampado en la capa)
+            decals->stampSprite("assets/redacted/hazard/nuke_crater.png", x, y,
+                                 NUKE_RADIUS * 2.0f, NUKE_RADIUS * 2.0f, 0.0f, 255, 255, 255, 255);
         flash = 1.0f; timer = 0.0f;
     }
 };
@@ -298,12 +474,15 @@ public:
     Health*         hp = nullptr;
     DecalLayer*     decals = nullptr;
 
+    void awake() override { fireTex = gameObject->scene->getAssets().loadTexture("assets/redacted/fx/fire.png"); }
+
     void spawnAt(float x, float y) {
         for (P& p : pool) if (!p.active) { p.x = x; p.y = y; p.life = FIRE_LIFE; p.active = true; return; }
     }
     void clear() { for (P& p : pool) p.active = false; }
 
     void update(float dt) override {
+        animClock += dt;
         for (P& p : pool) { if (!p.active) continue; p.life -= dt; if (p.life <= 0.0f) { p.active = false; scorch(p.x, p.y); } }
         if (target && hp) {
             float cx = target->centerX(), cy = target->centerY();
@@ -313,17 +492,20 @@ public:
     }
     void render() override {
         Scene& s = *gameObject->scene;
+        const float fw = FIRE_RADIUS * 2.6f, fh = fw * (544.0f / 817.0f); // tile 817x544
         for (P& p : pool) {
             if (!p.active) continue;
             float frac = p.life / FIRE_LIFE; if (frac < 0.0f) frac = 0.0f;
-            int a = (int)(60 + 120 * frac);
-            Shapes::fillCircle(s, p.x, p.y, FIRE_RADIUS, 255, 110, 20, (int)(a * 0.45f));
-            Shapes::fillCircle(s, p.x, p.y, FIRE_RADIUS * 0.6f, 255, 200, 60, a);
+            int a = (int)(80 + 150 * frac); if (a > 255) a = 255;
+            int f = (int)(animClock * 10.0f + p.x * 0.02f); f = ((f % 4) + 4) % 4; // frame + desfase
+            SDL_FRect src{ (float)f * 817.0f, 0.0f, 817.0f, 544.0f };
+            drawWorldFrame(s, fireTex, p.x, p.y, fw, fh, &src, 0.0f, 255, 255, 255, a);
         }
     }
 private:
     struct P { float x = 0, y = 0, life = 0; bool active = false; };
     std::vector<P> pool = std::vector<P>(128);
+    SDL_Texture* fireTex = nullptr; float animClock = 0.0f;
     void scorch(float x, float y) {
         if (!decals) return;
         for (int i = 0; i < 5; ++i) {
@@ -359,6 +541,8 @@ public:
             sweepPhase += sweepSpeed * dt;
             aimAngle = sweepBase + std::sin(sweepPhase) * sweepRange;
         }
+        // Orienta la boquilla (apunta ABAJO en reposo) hacia el aim: rot = aim - 90.
+        gameObject->transform->rotation = aimAngle * (180.0f / PI) - 90.0f;
         if (!active) return;
         timer += dt;
         bool jetting = (timer >= interval - JET_TIME);
@@ -414,6 +598,8 @@ public:
     void setOffset(float t) { timer = t; }        // desfasar las caidas
     void setActive(bool a)  { active = a; }        // la Camara 03 las activa en Fase 2
 
+    void awake() override { mineTex = gameObject->scene->getAssets().loadTexture("assets/redacted/hazard/mine_active.png"); }
+
     void update(float dt) override {
         if (flash > 0.0f) { flash -= dt * 4.0f; if (flash < 0.0f) flash = 0.0f; }
         if (!active) return;
@@ -437,17 +623,19 @@ public:
             float frac = timer / MINE_DROP; if (frac > 1.0f) frac = 1.0f;
             Shapes::fillCircle(s, x, y, MINE_RADIUS * (0.35f + 0.65f * frac), 0, 0, 0, 130);
             float topY = -HALF_H, cy = topY + (y - topY) * frac;
-            Shapes::fillCircle(s, x, cy, 12.0f, 255, 180, 40, 255);
+            drawWorldTex(s, mineTex, x, cy, 0.14f, 0.0f); // sprite de la mina cayendo
         }
         if (flash > 0.0f) Shapes::fillCircle(s, x, y, MINE_RADIUS, 255, 120, 40, (int)(220 * flash));
     }
 private:
+    SDL_Texture* mineTex = nullptr;
     int state = 0; float timer = 0.0f, flash = 0.0f;
     void explode() {
         float x = gameObject->transform->x, y = gameObject->transform->y;
         if (target && hp && Collision::pointInCircle(target->centerX(), target->centerY(), x, y, MINE_RADIUS))
             hp->kill();
         flash = 1.0f;
+        spawnExplosion(*gameObject->scene, x, y, MINE_RADIUS * 1.8f); // sprite de explosion
         if (decals)                                // quemadura NEGRA que queda en el suelo
             for (int i = 0; i < 8; ++i) {
                 float ox = frand(-MINE_RADIUS * 0.6f, MINE_RADIUS * 0.6f);
@@ -594,9 +782,7 @@ void buildCamara01(Scene& scene) {
     GameObject* player = scene.createGameObject("Player");
     player->tag = "player";
     player->transform->x = 0.0f; player->transform->y = 0.0f;
-    player->transform->scaleX = player->transform->scaleY = 2.0f;
-    auto psr = player->addComponent<SpriteRenderer>(SHIPS_SHEET);
-    psr->setSourceRect(0, 0, SHIP_CELL, SHIP_CELL);
+    setupPlayerAnim(player); // clon animado (hojas idle/run direccionales)
     auto rb = player->addComponent<RigidBody2D>(); rb->gravityScale = 0.0f;
     auto body = player->addComponent<BoxCollider>(); body->width = body->height = BODY_SIZE;
     auto hurt = player->addComponent<CircleCollider>(); hurt->radius = HURTBOX_RADIUS;
@@ -635,8 +821,7 @@ void buildCamara01(Scene& scene) {
         GameObject* t = scene.createGameObject("Turret");
         t->transform->x = td.x; t->transform->y = td.y;
         t->transform->scaleX = t->transform->scaleY = 2.0f;
-        auto sr = t->addComponent<SpriteRenderer>(SHIPS_SHEET);
-        sr->setSourceRect(1 * SHIP_CELL, 4 * SHIP_CELL, SHIP_CELL, SHIP_CELL);
+        addTurretArt(t, false); // arte real: base + cañon rotatorio (MK2)
         auto tu = t->addComponent<Turret>();
         tu->setSweep(td.baseDeg, 90.0f, 1.1f); // +-90 grados = arco de 180
         tu->streamInterval = 0.16f;            // flujo continuo + rafaga cada 'interval'
@@ -646,7 +831,10 @@ void buildCamara01(Scene& scene) {
 
     // Pool de balas (apunta a la hurtbox del jugador).
     auto pool = scene.createGameObject("BulletManager")->addComponent<BulletPool>(800);
-    pool->setColor(255, 120, 40);
+    pool->setColor(255, 255, 255);                       // sin tinte: muestra el arte real
+    pool->setSprite("assets/redacted/bullet/bullets.png");
+    pool->setStrip(234, 469, 4);                          // 4 variantes; type elige columna
+    pool->setRotateToVelocity(true);                     // la bala apunta a donde viaja
     pool->setBounds(-HALF_W, -HALF_H, HALF_W, HALF_H);
     pool->setTarget(hurt);
     for (Turret* t : turrets) t->pool = pool;
@@ -695,9 +883,11 @@ void buildCamara01(Scene& scene) {
     chamber->introLine();
 
     // GORE + MUERTE: estalla, mancha permanente y reinicia el intento.
-    hp->onDeath = [player, fx, decals, chamber]() {
+    Scene* scenePtr = &scene;
+    hp->onDeath = [player, fx, decals, chamber, scenePtr]() {
         Audio::play("death");
         float dx = player->transform->x, dy = player->transform->y;
+        spawnExplosion(*scenePtr, dx, dy, 90.0f); // el clon revienta
         fx->emitBurst(dx, dy, 48);
         for (int i = 0; i < 10; ++i) {
             float ox = frand(-30.0f, 30.0f), oy = frand(-30.0f, 30.0f);
@@ -750,9 +940,7 @@ void buildCamara02(Scene& scene) {
     GameObject* player = scene.createGameObject("Player");
     player->tag = "player";
     player->transform->x = 0.0f; player->transform->y = 250.0f;
-    player->transform->scaleX = player->transform->scaleY = 2.0f;
-    auto psr = player->addComponent<SpriteRenderer>(SHIPS_SHEET);
-    psr->setSourceRect(0, 0, SHIP_CELL, SHIP_CELL);
+    setupPlayerAnim(player); // clon animado (hojas idle/run direccionales)
     auto rb = player->addComponent<RigidBody2D>(); rb->gravityScale = 0.0f;
     auto body = player->addComponent<BoxCollider>(); body->width = body->height = BODY_SIZE;
     auto hurt = player->addComponent<CircleCollider>(); hurt->radius = HURTBOX_RADIUS;
@@ -786,6 +974,7 @@ void buildCamara02(Scene& scene) {
     auto flame = fl->addComponent<Flamethrower>();
     flame->target = hurt; flame->hp = hp; flame->patches = firePatches;
     flame->aimAngle = PI * 0.5f; flame->active = false;
+    addFlamethrowerArt(fl);
 
     // 4 torretas MK-II ROTATIVAS en las paredes (techo N/NE + laterales). Flujo
     // continuo + rafaga.
@@ -802,8 +991,7 @@ void buildCamara02(Scene& scene) {
         GameObject* t = scene.createGameObject("Turret");
         t->transform->x = td.x; t->transform->y = td.y;
         t->transform->scaleX = t->transform->scaleY = 2.0f;
-        auto sr = t->addComponent<SpriteRenderer>(SHIPS_SHEET);
-        sr->setSourceRect(1 * SHIP_CELL, 4 * SHIP_CELL, SHIP_CELL, SHIP_CELL);
+        addTurretArt(t, false); // arte real: base + cañon rotatorio (MK2)
         auto tu = t->addComponent<Turret>();
         tu->setSweep(td.startDeg, 90.0f, 0.6f); // barre su semiplano y rebota (no dispara a la pared)
         tu->interval = 0.0f;         // SOLO flujo (sin rafaga)
@@ -819,8 +1007,7 @@ void buildCamara02(Scene& scene) {
         GameObject* t = scene.createGameObject("TurretMid");
         t->transform->x = mp[0]; t->transform->y = mp[1];
         t->transform->scaleX = t->transform->scaleY = 1.3f; // no tan grandes
-        auto sr = t->addComponent<SpriteRenderer>(SHIPS_SHEET);
-        sr->setSourceRect(1 * SHIP_CELL, 4 * SHIP_CELL, SHIP_CELL, SHIP_CELL);
+        addTurretArt(t, false); // arte real: base + cañon rotatorio (MK2)
         auto tu = t->addComponent<Turret>();
         tu->setAimAngle(90.0f); tu->rotSpeed = 120.0f; tu->interval = 0.0f; // solo flujo
         tu->streamInterval = 0.22f;
@@ -828,7 +1015,10 @@ void buildCamara02(Scene& scene) {
     }
 
     auto pool = scene.createGameObject("BulletManager")->addComponent<BulletPool>(900);
-    pool->setColor(255, 120, 40);
+    pool->setColor(255, 255, 255);                       // sin tinte: muestra el arte real
+    pool->setSprite("assets/redacted/bullet/bullets.png");
+    pool->setStrip(234, 469, 4);                          // 4 variantes; type elige columna
+    pool->setRotateToVelocity(true);                     // la bala apunta a donde viaja
     pool->setBounds(-HALF_W, -HALF_H, HALF_W, HALF_H);
     pool->setTarget(hurt);
     for (Turret* t : turrets) t->pool = pool;
@@ -877,9 +1067,11 @@ void buildCamara02(Scene& scene) {
     chamber->setPhase(0);
     chamber->introLine();
 
-    hp->onDeath = [player, fx, decals, chamber]() {
+    Scene* scenePtr = &scene;
+    hp->onDeath = [player, fx, decals, chamber, scenePtr]() {
         Audio::play("death");
         float dx = player->transform->x, dy = player->transform->y;
+        spawnExplosion(*scenePtr, dx, dy, 90.0f); // el clon revienta
         fx->emitBurst(dx, dy, 48);
         for (int i = 0; i < 10; ++i) {
             float ox = frand(-30.0f, 30.0f), oy = frand(-30.0f, 30.0f);
@@ -927,9 +1119,7 @@ void buildCamara03(Scene& scene) {
     GameObject* player = scene.createGameObject("Player");
     player->tag = "player";
     player->transform->x = 0.0f; player->transform->y = 40.0f;
-    player->transform->scaleX = player->transform->scaleY = 2.0f;
-    auto psr = player->addComponent<SpriteRenderer>(SHIPS_SHEET);
-    psr->setSourceRect(0, 0, SHIP_CELL, SHIP_CELL);
+    setupPlayerAnim(player); // clon animado (hojas idle/run direccionales)
     auto rb = player->addComponent<RigidBody2D>(); rb->gravityScale = 0.0f;
     auto body = player->addComponent<BoxCollider>(); body->width = body->height = BODY_SIZE;
     auto hurt = player->addComponent<CircleCollider>(); hurt->radius = HURTBOX_RADIUS;
@@ -991,6 +1181,7 @@ void buildCamara03(Scene& scene) {
         flame->sweepBase = flDefs[i].baseRad; flame->sweepRange = 0.5f;
         flame->range = 240.0f;                 // muy corto: deja un buen pasillo central
         flame->setOffset(i * 0.4f);            // desfases -> olas viajeras
+        addFlamethrowerArt(fl);
         flames.push_back(flame);
     }
 
@@ -1003,8 +1194,7 @@ void buildCamara03(Scene& scene) {
         t->transform->x = bottom ? railMax : railMin; // arrancan en extremos opuestos
         t->transform->y = bottom ? (HALF_H - 30.0f) : (-HALF_H + 30.0f);
         t->transform->scaleX = t->transform->scaleY = 2.0f;
-        auto sr = t->addComponent<SpriteRenderer>(SHIPS_SHEET);
-        sr->setSourceRect(1 * SHIP_CELL, 4 * SHIP_CELL, SHIP_CELL, SHIP_CELL);
+        addTurretArt(t, true); // arte real: base + cañon rotatorio (MK4/riel)
         auto tu = t->addComponent<Turret>();
         // Barre +-90 grados frente a su pared (techo mira abajo, suelo arriba) y rebota:
         // nunca gira 360 ni dispara hacia su propia pared.
@@ -1027,8 +1217,7 @@ void buildCamara03(Scene& scene) {
         GameObject* t = scene.createGameObject("TurretSide");
         t->transform->x = sd.x; t->transform->y = sd.y;
         t->transform->scaleX = t->transform->scaleY = 2.0f;
-        auto sr = t->addComponent<SpriteRenderer>(SHIPS_SHEET);
-        sr->setSourceRect(1 * SHIP_CELL, 4 * SHIP_CELL, SHIP_CELL, SHIP_CELL);
+        addTurretArt(t, false); // arte real: base + cañon rotatorio (MK2)
         auto tu = t->addComponent<Turret>();
         tu->setSweep(sd.baseDeg, 90.0f, 0.5f);
         tu->burst = 4; tu->interval = 2.0f;  // SOLO rafaga (sin flujo)
@@ -1036,7 +1225,10 @@ void buildCamara03(Scene& scene) {
     }
 
     auto pool = scene.createGameObject("BulletManager")->addComponent<BulletPool>(1000);
-    pool->setColor(255, 120, 40);
+    pool->setColor(255, 255, 255);                       // sin tinte: muestra el arte real
+    pool->setSprite("assets/redacted/bullet/bullets.png");
+    pool->setStrip(234, 469, 4);                          // 4 variantes; type elige columna
+    pool->setRotateToVelocity(true);                     // la bala apunta a donde viaja
     pool->setBounds(-HALF_W, -HALF_H, HALF_W, HALF_H);
     pool->setTarget(hurt);
     for (Turret* t : turrets) t->pool = pool;
@@ -1095,9 +1287,11 @@ void buildCamara03(Scene& scene) {
     chamber->setPhase(0);
     chamber->introLine();
 
-    hp->onDeath = [player, fx, decals, chamber]() {
+    Scene* scenePtr = &scene;
+    hp->onDeath = [player, fx, decals, chamber, scenePtr]() {
         Audio::play("death");
         float dx = player->transform->x, dy = player->transform->y;
+        spawnExplosion(*scenePtr, dx, dy, 90.0f); // el clon revienta
         fx->emitBurst(dx, dy, 48);
         for (int i = 0; i < 10; ++i) {
             float ox = frand(-30.0f, 30.0f), oy = frand(-30.0f, 30.0f);

@@ -42,6 +42,13 @@ public:
     void setColor(int r, int g, int b, int a = 255);        // tinte / color del fallback
     void setDrawScale(float s) { drawScale = s; }           // tamano visual = 2*radius*s
 
+    // Tira horizontal de variantes: el campo 'type' de cada bala elige la COLUMNA
+    // (frameW x frameH). El dibujo respeta la relacion de aspecto del frame (balas
+    // alargadas se ven alargadas, no cuadradas).
+    void setStrip(int frameW, int frameH, int frameCount);
+    // Gira cada bala hacia su velocidad (el arte apunta hacia ARRIBA en reposo).
+    void setRotateToVelocity(bool on) { rotateVel = on; }
+
     // --- Configuracion de simulacion ----------------------------------------
     // Rectangulo de mundo fuera del cual una bala se desactiva (culling de sala).
     void setBounds(float minX, float minY, float maxX, float maxY);
@@ -75,6 +82,10 @@ private:
     float srcX = 0.0f, srcY = 0.0f, srcW = 0.0f, srcH = 0.0f;
     int   colR = 255, colG = 80, colB = 80, colA = 255;
     float drawScale = 1.0f;
+
+    bool  useStrip = false;                 // tira de variantes (columna = type)
+    int   frameW = 0, frameH = 0, frameCount = 1;
+    bool  rotateVel = false;                // orientar cada bala hacia su velocidad
 
     bool  hasBounds = false;
     float bMinX = 0.0f, bMinY = 0.0f, bMaxX = 0.0f, bMaxY = 0.0f;

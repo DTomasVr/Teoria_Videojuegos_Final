@@ -8,6 +8,7 @@
 #include "Collision.h"
 
 #include <SDL3/SDL.h>
+#include <cmath>
 
 BulletPool::BulletPool(int capacity) {
     if (capacity < 1) capacity = 1;
@@ -24,6 +25,10 @@ void BulletPool::setSprite(const std::string& p) {
 
 void BulletPool::setSourceRect(float x, float y, float w, float h) {
     srcX = x; srcY = y; srcW = w; srcH = h; useSrc = true;
+}
+
+void BulletPool::setStrip(int fw, int fh, int count) {
+    frameW = fw; frameH = fh; frameCount = (count < 1) ? 1 : count; useStrip = true;
 }
 
 void BulletPool::setColor(int r, int g, int b, int a) {
@@ -110,19 +115,34 @@ void BulletPool::render() {
     float zoom = cam ? cam->getZoom() : 1.0f;
 
     if (texture) {
-        SDL_FRect src{ srcX, srcY, srcW, srcH };
-        const SDL_FRect* srcPtr = useSrc ? &src : nullptr;
         SDL_SetTextureColorMod(texture, (Uint8)colR, (Uint8)colG, (Uint8)colB);
         SDL_SetTextureAlphaMod(texture, (Uint8)colA);
+        const float RAD2DEG = 57.2957795f;
 
         for (const Bullet& b : pool) {
             if (!b.active) continue;
-            float side = b.radius * 2.0f * drawScale * zoom;
+            // Recorte del frame: columna 'type' si es tira, recorte fijo si useSrc,
+            // textura completa si no. 'aspect' mantiene la forma real del sprite.
+            SDL_FRect src; const SDL_FRect* srcPtr = nullptr; float aspect = 1.0f;
+            if (useStrip) {
+                int c = ((b.type % frameCount) + frameCount) % frameCount;
+                src = { (float)(c * frameW), 0.0f, (float)frameW, (float)frameH };
+                srcPtr = &src; if (frameW > 0) aspect = (float)frameH / (float)frameW;
+            } else if (useSrc) {
+                src = { srcX, srcY, srcW, srcH }; srcPtr = &src;
+                if (srcW > 0.0f) aspect = srcH / srcW;
+            } else {
+                float tw = 0.0f, th = 0.0f; SDL_GetTextureSize(texture, &tw, &th);
+                if (tw > 0.0f) aspect = th / tw;
+            }
+            float w = b.radius * 2.0f * drawScale * zoom;
+            float h = w * aspect;
             float sx, sy;
             if (cam) cam->worldToScreen(b.x, b.y, sx, sy);
             else { sx = b.x; sy = b.y; }
-            SDL_FRect dst{ sx - side * 0.5f, sy - side * 0.5f, side, side };
-            SDL_RenderTexture(renderer, texture, srcPtr, &dst);
+            SDL_FRect dst{ sx - w * 0.5f, sy - h * 0.5f, w, h };
+            double rot = rotateVel ? (std::atan2(b.vy, b.vx) * RAD2DEG + 90.0) : 0.0;
+            SDL_RenderTextureRotated(renderer, texture, srcPtr, &dst, rot, nullptr, SDL_FLIP_NONE);
         }
         // Dejar el modulado en neutro: la textura puede compartirse por cache.
         SDL_SetTextureColorMod(texture, 255, 255, 255);

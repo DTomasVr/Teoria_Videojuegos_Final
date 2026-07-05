@@ -11,6 +11,9 @@
 #include "../engine/Component.h"
 #include "../engine/Transform.h"
 #include "../engine/SpriteRenderer.h"
+#include "../engine/SpriteAnimator.h"
+#include "../engine/Lifetime.h"
+#include "../engine/AssetManager.h"
 #include "../engine/RigidBody2D.h"
 #include "../engine/BoxCollider.h"
 #include "../engine/CircleCollider.h"
@@ -40,6 +43,7 @@ namespace {
     constexpr float PLAYER_SPEED   = 260.0f;
     constexpr float HURTBOX_RADIUS = 8.0f;
     constexpr float BODY_SIZE      = 44.0f;
+    constexpr float PLAYER_SCALE   = 0.25f; // celda 256px -> ~64px en el mundo
     constexpr float DASH_SPEED    = 900.0f, DASH_DURATION = 0.12f;
     constexpr float DASH_IFRAMES  = 0.12f,  DASH_COOLDOWN = 0.5f;
 
@@ -92,8 +96,6 @@ namespace {
     constexpr float TITLE_TIME = 3.2f, TITLE_FADE = 1.2f; // rotulo central que se desvanece
 
     constexpr float PI = 3.14159265f;
-    const char* SHIPS_SHEET = "assets/kenney_pixelshmup/Tilemap/ships_packed.png";
-    constexpr int SHIP_CELL = 32;
 
     float frand(float a, float b) { return a + (b - a) * ((float)std::rand() / (float)RAND_MAX); }
     float randX() { return frand(-HALF_W + 60.0f, HALF_W - 60.0f); }
@@ -103,6 +105,107 @@ namespace {
 // Componentes locales de esta escena. Namespace anonimo (enlace interno) para no
 // chocar con clases del mismo nombre en otras escenas (p.ej. RoomRenderer en Sector1.cpp).
 namespace {
+
+// Configura el sprite ANIMADO del clon. Hojas 4x4 (fila = direccion, columnas = frames):
+// idle.png 992x1024 (celda 248x256), run.png y run_diag.png 1008x1008 (celda 252x252).
+// Las hojas -sheet_render corregidas ya NO tienen el swap up/down de antes: las tres
+// comparten filas 0=abajo, 1=arriba, 2=derecha, 3=izquierda (run_diag: 0=arriba-derecha,
+// 1=arriba-izquierda, 2=abajo-derecha, 3=abajo-izquierda).
+inline void setupPlayerAnim(GameObject* player) {
+    player->transform->scaleX = player->transform->scaleY = PLAYER_SCALE;
+    player->addComponent<SpriteRenderer>(); // sin textura: la pone el animator
+    auto anim = player->addComponent<SpriteAnimator>(252, 252, 4);
+    const char* IDLE = "assets/redacted/player/idle.png";
+    const char* RUN  = "assets/redacted/player/run.png";
+    const char* DIAG = "assets/redacted/player/run_diag.png";
+    const float IDLE_FPS = 3.0f, RUN_FPS = 9.0f; // idle mas lento (respiracion)
+    anim->addRowAnimation("idle_down",  IDLE, 248, 256, 0, IDLE_FPS);
+    anim->addRowAnimation("idle_up",    IDLE, 248, 256, 1, IDLE_FPS);
+    anim->addRowAnimation("idle_right", IDLE, 248, 256, 2, IDLE_FPS);
+    anim->addRowAnimation("idle_left",  IDLE, 248, 256, 3, IDLE_FPS);
+    anim->addRowAnimation("run_down",  RUN, 252, 252, 0, RUN_FPS);
+    anim->addRowAnimation("run_up",    RUN, 252, 252, 1, RUN_FPS);
+    anim->addRowAnimation("run_right", RUN, 252, 252, 2, RUN_FPS);
+    anim->addRowAnimation("run_left",  RUN, 252, 252, 3, RUN_FPS);
+    anim->addRowAnimation("run_up_right",   DIAG, 252, 252, 0, RUN_FPS);
+    anim->addRowAnimation("run_up_left",    DIAG, 252, 252, 1, RUN_FPS);
+    anim->addRowAnimation("run_down_right", DIAG, 252, 252, 2, RUN_FPS);
+    anim->addRowAnimation("run_down_left",  DIAG, 252, 252, 3, RUN_FPS);
+    anim->play("idle_down");
+}
+
+// Explosion de un solo uso: hoja de 6 frames que se reproduce y el objeto se
+// autodestruye (Lifetime). worldSize = diametro deseado en el mundo.
+inline void spawnExplosion(Scene& scene, float x, float y, float worldSize) {
+    GameObject* e = scene.createGameObject("Explosion");
+    e->transform->x = x; e->transform->y = y;
+    e->transform->scaleX = e->transform->scaleY = worldSize / 768.0f;
+    e->addComponent<SpriteRenderer>(); // textura la pone el animator
+    auto anim = e->addComponent<SpriteAnimator>(768, 768, 6);
+    anim->addStripAnimation("boom", "assets/redacted/fx/explosion.png", 768, 768, 18.0f, false);
+    anim->play("boom");
+    e->addComponent<Lifetime>()->seconds = 6.0f / 18.0f + 0.05f; // dura lo que la animacion
+}
+
+// Dibuja una textura suelta en coordenadas de MUNDO (con la camara), centrada.
+inline void drawWorldTex(Scene& scene, SDL_Texture* t, float wx, float wy, float scale, float rotDeg) {
+    if (!t) return;
+    Camera* cam = scene.getActiveCamera();
+    float zoom = cam ? cam->getZoom() : 1.0f;
+    float sx, sy;
+    if (cam) cam->worldToScreen(wx, wy, sx, sy); else { sx = wx; sy = wy; }
+    float w = 0, h = 0; SDL_GetTextureSize(t, &w, &h);
+    float s = scale * zoom;
+    SDL_FRect dst{ sx - w * s * 0.5f, sy - h * s * 0.5f, w * s, h * s };
+    SDL_RenderTextureRotated(scene.getRenderer(), t, nullptr, &dst, rotDeg, nullptr, SDL_FLIP_NONE);
+}
+
+// Dibuja un FRAME (recorte opcional) de una textura en el mundo, con tamaño de mundo
+// explicito + rotacion + tinte + alpha. Lo usan fuego, destellos y placas.
+inline void drawWorldFrame(Scene& scene, SDL_Texture* t, float wx, float wy,
+                           float worldW, float worldH, const SDL_FRect* src,
+                           float rotDeg, int r, int g, int b, int a) {
+    if (!t) return;
+    Camera* cam = scene.getActiveCamera();
+    float zoom = cam ? cam->getZoom() : 1.0f;
+    float sx, sy;
+    if (cam) cam->worldToScreen(wx, wy, sx, sy); else { sx = wx; sy = wy; }
+    float w = worldW * zoom, h = worldH * zoom;
+    SDL_FRect dst{ sx - w * 0.5f, sy - h * 0.5f, w, h };
+    SDL_SetTextureColorMod(t, (Uint8)r, (Uint8)g, (Uint8)b);
+    SDL_SetTextureAlphaMod(t, (Uint8)a);
+    SDL_RenderTextureRotated(scene.getRenderer(), t, src, &dst, rotDeg, nullptr, SDL_FLIP_NONE);
+    SDL_SetTextureColorMod(t, 255, 255, 255);
+    SDL_SetTextureAlphaMod(t, 255);
+}
+
+// Destello de disparo: reproduce fx/muzzle.png (3 frames de 670px) UNA vez, orientado
+// hacia el disparo, y se autodestruye. Componente propio porque el SpriteRenderer no rota.
+constexpr int   MUZZLE_FRAMES = 3;
+constexpr float MUZZLE_FPS = 26.0f, MUZZLE_SIZE = 46.0f;
+
+class MuzzleFlash : public Component {
+public:
+    SDL_Texture* tex = nullptr; float rot = 0.0f;
+    void update(float dt) override { clock += dt; }
+    void render() override {
+        int f = (int)(clock * MUZZLE_FPS); if (f >= MUZZLE_FRAMES) f = MUZZLE_FRAMES - 1;
+        SDL_FRect src{ (float)(f * 670), 0.0f, 670.0f, 670.0f };
+        drawWorldFrame(*gameObject->scene, tex, gameObject->transform->x, gameObject->transform->y,
+                       MUZZLE_SIZE, MUZZLE_SIZE, &src, rot, 255, 255, 255, 255);
+    }
+private:
+    float clock = 0.0f;
+};
+
+inline void spawnMuzzle(Scene& scene, float x, float y, float rotDeg) {
+    GameObject* g = scene.createGameObject("Muzzle");
+    g->transform->x = x; g->transform->y = y;
+    auto m = g->addComponent<MuzzleFlash>();
+    m->tex = scene.getAssets().loadTexture("assets/redacted/fx/muzzle.png");
+    m->rot = rotDeg;
+    g->addComponent<Lifetime>()->seconds = (float)MUZZLE_FRAMES / MUZZLE_FPS + 0.02f;
+}
 
 // ----------------------------------------------------------------------------
 //  Suelo y contorno de la arena.
@@ -160,11 +263,30 @@ public:
         }
         dashPrev = dashKey;
 
+        bool moving = (len > 0.0f) || (dashTimer > 0.0f);
         if (dashTimer > 0.0f) {
             rb->velocityX = dashDirX * DASH_SPEED; rb->velocityY = dashDirY * DASH_SPEED;
             dashTimer -= dt;
         } else { rb->velocityX = ix * PLAYER_SPEED; rb->velocityY = iy * PLAYER_SPEED; }
         if (cooldownTimer > 0.0f) cooldownTimer -= dt;
+
+        // Animacion: correr tiene 8 direcciones (ortogonales + diagonales); en reposo
+        // solo 4 (la hoja idle no trae diagonales) -> se usa el eje cardinal dominante.
+        if (len > 0.0f) {
+            const bool L = ix < -0.01f, R = ix > 0.01f, U = iy < -0.01f, D = iy > 0.01f;
+            if      (U && R) runDir = "up_right";
+            else if (U && L) runDir = "up_left";
+            else if (D && R) runDir = "down_right";
+            else if (D && L) runDir = "down_left";
+            else if (R)      runDir = "right";
+            else if (L)      runDir = "left";
+            else if (U)      runDir = "up";
+            else             runDir = "down";
+            if (std::fabs(ix) > std::fabs(iy)) idleDir = (ix < 0.0f) ? "left" : "right";
+            else                               idleDir = (iy < 0.0f) ? "up" : "down";
+        }
+        if (auto anim = gameObject->getComponent<SpriteAnimator>())
+            anim->play(moving ? ("run_" + runDir) : ("idle_" + idleDir));
 
         if (auto sr = gameObject->getComponent<SpriteRenderer>()) {
             if (hp && hp->isInvulnerable()) sr->setColor(120, 200, 255, 180);
@@ -178,6 +300,7 @@ public:
 private:
     float lastX = 0.0f, lastY = -1.0f, dashDirX = 0.0f, dashDirY = -1.0f;
     float dashTimer = 0.0f, cooldownTimer = 0.0f; bool dashPrev = false;
+    std::string runDir = "down", idleDir = "down";
 };
 
 // ----------------------------------------------------------------------------
@@ -193,10 +316,13 @@ public:
     DecalLayer*     decals = nullptr;
     float intensity = 0.0f; // 0..1, lo fija BossRoom desde el calor
 
+    void awake() override { fireTex = gameObject->scene->getAssets().loadTexture("assets/redacted/fx/fire.png"); }
+
     void enable() { active = true; spawnTimer = 0.3f; }
     void reset()  { active = false; for (Patch& p : patches) p.active = false; }
 
     void update(float dt) override {
+        animClock += dt;
         if (!active) return;
         spawnTimer -= dt;
         if (spawnTimer <= 0.0f) { spawnRandom(); spawnTimer = interval(); }
@@ -218,20 +344,23 @@ public:
         Scene& s = *gameObject->scene;
         for (Patch& p : patches) {
             if (!p.active) continue;
-            if (p.warn > 0.0f) {   // telegrafo: anillo parpadeante
+            if (p.warn > 0.0f) {   // telegrafo: anillo parpadeante (aun no arde)
                 float pulse = 0.5f + 0.5f * std::sin(p.warn * 26.0f);
                 Shapes::outlineCircle(s, p.x, p.y, FLAME_RADIUS, 255, 120, 40, (int)(80 + 150 * pulse));
-            } else {
+            } else {               // ardiendo: tile de fuego animado
                 float frac = p.life / FLAME_LIFE; if (frac < 0.0f) frac = 0.0f;
-                int a = (int)(60 + 120 * frac);
-                Shapes::fillCircle(s, p.x, p.y, FLAME_RADIUS, 255, 110, 20, (int)(a * 0.45f));
-                Shapes::fillCircle(s, p.x, p.y, FLAME_RADIUS * 0.6f, 255, 200, 60, a);
+                int a = (int)(80 + 150 * frac); if (a > 255) a = 255;
+                const float fw = FLAME_RADIUS * 2.6f, fh = fw * (544.0f / 817.0f);
+                int f = (int)(animClock * 10.0f + p.x * 0.02f); f = ((f % 4) + 4) % 4;
+                SDL_FRect src{ (float)f * 817.0f, 0.0f, 817.0f, 544.0f };
+                drawWorldFrame(s, fireTex, p.x, p.y, fw, fh, &src, 0.0f, 255, 255, 255, a);
             }
         }
     }
 private:
     struct Patch { float x = 0, y = 0, life = 0, warn = 0; bool active = false; };
     std::vector<Patch> patches = std::vector<Patch>(80);
+    SDL_Texture* fireTex = nullptr; float animClock = 0.0f;
     bool active = false;
     float spawnTimer = 0.0f;
 
@@ -262,6 +391,7 @@ public:
     DecalLayer*     decals = nullptr;
     float intensity = 0.0f;
 
+    void awake() override { mineTex = gameObject->scene->getAssets().loadTexture("assets/redacted/hazard/mine_active.png"); }
     void enable() { active = true; spawnTimer = 0.8f; }
     void reset()  { active = false; for (M& m : mines) m.active = false; }
 
@@ -282,10 +412,11 @@ public:
             float frac = 1.0f - m.timer / DROP; if (frac < 0.0f) frac = 0.0f;
             Shapes::fillCircle(s, m.x, m.y, MINE_RADIUS * (0.35f + 0.65f * frac), 0, 0, 0, 130);
             float topY = -HALF_H, cy = topY + (m.y - topY) * frac;
-            Shapes::fillCircle(s, m.x, cy, 10.0f, 255, 180, 40, 255);
+            drawWorldTex(s, mineTex, m.x, cy, 0.14f, 0.0f); // sprite de la mina cayendo
         }
     }
 private:
+    SDL_Texture* mineTex = nullptr;
     static constexpr float DROP = 1.0f;          // seg de caida (telegrafo)
     struct M { float x = 0, y = 0, timer = 0; bool active = false; };
     std::vector<M> mines = std::vector<M>(80);
@@ -300,6 +431,7 @@ private:
     void explode(M& m) {
         if (target && hp && Collision::pointInCircle(target->centerX(), target->centerY(), m.x, m.y, MINE_RADIUS))
             hp->kill();
+        spawnExplosion(*gameObject->scene, m.x, m.y, MINE_RADIUS * 1.8f); // sprite de explosion
         if (decals)                              // quemadura NEGRA que queda en el suelo
             for (int i = 0; i < 8; ++i) {
                 float ox = frand(-MINE_RADIUS * 0.6f, MINE_RADIUS * 0.6f);
@@ -346,15 +478,22 @@ public:
         float tipX = ox + dx * ARM_TIP, tipY = oy + dy * ARM_TIP;
 
         t1 += dt;
+        if (muzT > 0.0f) muzT -= dt;
+        bool fired = false;
         if (weapon == Weapon::Minigun) {
-            while (t1 >= MINIGUN_INTERVAL) { t1 -= MINIGUN_INTERVAL;
+            while (t1 >= MINIGUN_INTERVAL) { t1 -= MINIGUN_INTERVAL; fired = true;
                 if (pool) pool->spawn(tipX, tipY, dx * BOSS_BULLET_SPEED, dy * BOSS_BULLET_SPEED, BULLET_RADIUS, BULLET_LIFE); }
         } else {
-            while (t1 >= HMG_INTERVAL) { t1 -= HMG_INTERVAL; fireBurst(tipX, tipY, dx, dy); }
+            while (t1 >= HMG_INTERVAL) { t1 -= HMG_INTERVAL; fired = true; fireBurst(tipX, tipY, dx, dy); }
+        }
+        // Destello en la punta del brazo (throttle: el minigun dispara muy seguido).
+        if (fired && muzT <= 0.0f) {
+            spawnMuzzle(*gameObject->scene, tipX, tipY, std::atan2(dy, dx) * 180.0f / PI);
+            muzT = 0.05f;
         }
     }
 private:
-    float t1 = 0.0f;
+    float t1 = 0.0f, muzT = 0.0f;
     void fireBurst(float x, float y, float dx, float dy) {
         if (!pool) return;
         float base = std::atan2(dy, dx);
@@ -637,6 +776,11 @@ public:
     BossRoom* state = nullptr;
     float w = 80.0f, h = 80.0f;
 
+    void awake() override {
+        activeTex = gameObject->scene->getAssets().loadTexture("assets/redacted/hazard/plate_active.png");
+        closedTex = gameObject->scene->getAssets().loadTexture("assets/redacted/hazard/plate_closed.png");
+    }
+
     void onCollision(GameObject* other) override {
         if (!other->hasTag("player")) return;
         if (state && state->platesLocked()) {                 // Fase 2: placa al rojo = letal
@@ -661,18 +805,18 @@ public:
         Scene& s = *gameObject->scene;
         float x = gameObject->transform->x, y = gameObject->transform->y;
         bool locked = state ? state->platesLocked() : false;
-        if (locked) { // RECALENTADA: rojo incandescente pulsante = peligro
+        if (locked) { // RECALENTADA: placa activa teñida de rojo incandescente pulsante = peligro
             float pulse = 0.5f + 0.5f * std::sin(animT * 6.0f);
-            int r = 200 + (int)(55 * pulse);
-            Shapes::fillRect(s, x, y, w, h, r, (int)(50 * pulse), 10, 210);
-            Shapes::outlineRect(s, x, y, w, h, 255, 120, 20, 235);
-        } else {
-            int base = active ? 235 : 110; base += (int)(20 * flash);
-            Shapes::fillRect(s, x, y, w, h, base, base / 2, 12, 150);
-            Shapes::outlineRect(s, x, y, w, h, 255, 200, 60, 220);
+            drawWorldFrame(s, activeTex, x, y, w, h, nullptr, 0.0f, 255, (int)(55 + 45 * pulse), 35, 235);
+        } else if (active) { // pisada en Fase 1: placa activa, ambar brillante
+            int g = 205 + (int)(35 * flash); if (g > 255) g = 255;
+            drawWorldFrame(s, activeTex, x, y, w, h, nullptr, 0.0f, 255, g, 120, 255);
+        } else {             // en reposo: tapa cerrada
+            drawWorldFrame(s, closedTex, x, y, w, h, nullptr, 0.0f, 255, 255, 255, 235);
         }
     }
 private:
+    SDL_Texture* activeTex = nullptr; SDL_Texture* closedTex = nullptr;
     bool contact = false, active = false; float cooldown = 0.0f, flash = 0.0f, animT = 0.0f;
 };
 
@@ -725,9 +869,7 @@ void buildBulletHell(Scene& scene) {
     GameObject* player = scene.createGameObject("Player");
     player->tag = "player";
     player->transform->x = 0.0f; player->transform->y = HALF_H - 170.0f;
-    player->transform->scaleX = player->transform->scaleY = 2.0f;
-    auto psr = player->addComponent<SpriteRenderer>(SHIPS_SHEET);
-    psr->setSourceRect(0, 0, SHIP_CELL, SHIP_CELL);
+    setupPlayerAnim(player); // clon animado (hojas idle/run direccionales)
     auto rb = player->addComponent<RigidBody2D>(); rb->gravityScale = 0.0f;
     auto body = player->addComponent<BoxCollider>(); body->width = body->height = BODY_SIZE;
     auto hurt = player->addComponent<CircleCollider>(); hurt->radius = HURTBOX_RADIUS;
@@ -757,24 +899,24 @@ void buildBulletHell(Scene& scene) {
     GameObject* core = scene.createGameObject("Core");
     core->tag = "boss";
     auto coreSpin = core->addComponent<Spin>();
-    core->transform->scaleX = core->transform->scaleY = 3.5f;
-    auto csr = core->addComponent<SpriteRenderer>(SHIPS_SHEET);
-    csr->setSourceRect(1 * SHIP_CELL, 3 * SHIP_CELL, SHIP_CELL, SHIP_CELL);
+    core->transform->scaleX = core->transform->scaleY = 0.42f; // hercules_base 521px -> ~220px
+    core->addComponent<SpriteRenderer>("assets/redacted/boss/hercules_base.png");
     auto cbody = core->addComponent<BoxCollider>();
     cbody->width = cbody->height = CORE_BODY; // el jugador no puede pararse en el centro
 
     std::vector<BossArm*> arms;
     for (int i = 0; i < ARM_COUNT; ++i) {
         GameObject* arm = scene.createGameObject("Arm");
-        arm->transform->scaleX = arm->transform->scaleY = 2.0f;
-        auto asr = arm->addComponent<SpriteRenderer>(SHIPS_SHEET);
-        int cell = (i % 2 == 0) ? 2 : 0;
-        asr->setSourceRect(cell * SHIP_CELL, 3 * SHIP_CELL, SHIP_CELL, SHIP_CELL);
+        arm->transform->scaleX = arm->transform->scaleY = 0.2f; // brazo hercules ~124px
+        arm->addComponent<SpriteRenderer>((i % 2 == 0)
+            ? "assets/redacted/boss/hercules_arm1.png"   // par A: brazo con sierra
+            : "assets/redacted/boss/hercules_arm2.png"); // par B: brazo blindado
         auto ch = arm->addComponent<ChildOf>();
         ch->setParent(core);
         float ang = (float)i / ARM_COUNT * 2.0f * PI;
         ch->localX = std::cos(ang) * ARM_OFFSET;
         ch->localY = std::sin(ang) * ARM_OFFSET;
+        ch->localRotation = ang * 180.0f / PI + 90.0f; // el brazo (vertical) apunta hacia AFUERA
         auto a = arm->addComponent<BossArm>();
         a->coreT = core->transform; a->target = hurt; a->hp = hp;
         a->pairA = (i % 2 == 0);
@@ -783,7 +925,10 @@ void buildBulletHell(Scene& scene) {
 
     // Pool de balas.
     auto pool = scene.createGameObject("BulletManager")->addComponent<BulletPool>(1200);
-    pool->setColor(255, 120, 40);
+    pool->setColor(255, 255, 255);                       // sin tinte: muestra el arte real
+    pool->setSprite("assets/redacted/bullet/bullets.png");
+    pool->setStrip(234, 469, 4);                          // 4 variantes; type elige columna
+    pool->setRotateToVelocity(true);                     // la bala apunta a donde viaja
     pool->setBounds(-HALF_W, -HALF_H, HALF_W, HALF_H);
     pool->setTarget(hurt);
     for (BossArm* a : arms) a->pool = pool;
@@ -827,9 +972,11 @@ void buildBulletHell(Scene& scene) {
     state->introLine(); // muestra la primera linea de NEXUS-9
 
     // GORE + MUERTE: estalla, mancha permanente y pierde TODO el progreso.
-    hp->onDeath = [player, fx, decals, state]() {
+    Scene* scenePtr = &scene;
+    hp->onDeath = [player, fx, decals, state, scenePtr]() {
         Audio::play("death"); // PRIMERO: el sonido suena justo al detectar el impacto
         float dx = player->transform->x, dy = player->transform->y;
+        spawnExplosion(*scenePtr, dx, dy, 90.0f); // el clon revienta
         fx->emitBurst(dx, dy, 48);
         for (int i = 0; i < 10; ++i) {
             float ox = frand(-30.0f, 30.0f), oy = frand(-30.0f, 30.0f);
