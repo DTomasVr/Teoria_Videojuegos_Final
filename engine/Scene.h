@@ -2,6 +2,7 @@
 #include <vector>
 #include <memory>
 #include <string>
+#include <algorithm>
 
 #include "GameObject.h"
 #include "AssetManager.h"
@@ -38,7 +39,17 @@ public:
         removeDeadObjects();
     }
 
-    void render() { for (auto& o : objects) o->render(); }
+    // Dibuja por 'layer' ascendente, ESTABLE (conserva el orden de creacion dentro de
+    // cada capa). NO reordena 'objects' para no alterar el orden de update (p.ej. ChildOf
+    // necesita padre-antes-que-hijo). Asi el HUD (layer alto) queda siempre encima aunque
+    // haya objetos creados en runtime (los bloques que caen) despues de el.
+    void render() {
+        renderOrder.clear();
+        for (auto& o : objects) renderOrder.push_back(o.get());
+        std::stable_sort(renderOrder.begin(), renderOrder.end(),
+                         [](GameObject* a, GameObject* b) { return a->layer < b->layer; });
+        for (GameObject* o : renderOrder) o->render();
+    }
 
     SDL_Renderer* getRenderer() const  { return renderer; }
     AssetManager& getAssets()          { return assets; }
@@ -57,5 +68,6 @@ private:
     AssetManager  assets;
     Camera*       activeCamera = nullptr;
     std::vector<std::unique_ptr<GameObject>> objects;
+    std::vector<GameObject*> renderOrder; // scratch reutilizado por render() (orden por layer)
     std::vector<BoxCollider*> colliders;
 };

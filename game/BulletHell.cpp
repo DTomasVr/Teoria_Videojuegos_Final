@@ -86,6 +86,7 @@ namespace {
     // GDD son referenciales para el TAMANO). La cadencia se acelera con el calor, asi
     // el suelo se va cubriendo (GDD 7.5: ~60% cubierto a ~90% de calor).
     constexpr float FLAME_RADIUS = 60.0f, FLAME_LIFE = 4.0f, FLAME_WARN = 0.6f;
+    constexpr float FLAME_HIT = 38.0f; // radio LETAL < visual (la llama se dibuja cargada a la izq): mas indulgente
     constexpr float FLAME_INT_MAX = 0.55f, FLAME_INT_MIN = 0.20f; // seg entre parches
     constexpr float MINE_RADIUS = 72.0f;                         // radio del estallido
     constexpr float MINE_INT_MAX = 1.3f,  MINE_INT_MIN = 0.45f;   // seg entre minas (MAS bombas)
@@ -357,7 +358,7 @@ public:
             float cx = target->centerX(), cy = target->centerY();
             for (Patch& p : patches)
                 if (p.active && p.warn <= 0.0f &&
-                    Collision::pointInCircle(cx, cy, p.x, p.y, FLAME_RADIUS)) { hp->kill(); break; }
+                    Collision::pointInCircle(cx, cy, p.x, p.y, FLAME_HIT)) { hp->kill(); break; }
         }
     }
     void render() override {
@@ -1052,6 +1053,7 @@ void buildBulletHell(Scene& scene) {
     // HUD de texto (fuente 5x7 embebida).
     auto mkText = [&scene](const char* name, float yTop, float size) {
         GameObject* o = scene.createGameObject(name);
+        o->layer = 100;                                  // HUD por encima del gameplay
         o->transform->x = 0.0f; o->transform->y = yTop; // offset desde el centro-arriba
         auto t = o->addComponent<TextRenderer>();
         t->screenSpace = true; t->anchorX = 0.5f; t->centered = true; t->pixelSize = size;
@@ -1059,6 +1061,7 @@ void buildBulletHell(Scene& scene) {
     };
     // Rotulo central del jefe: aparece con el fundido y se desvanece.
     GameObject* titleObj = scene.createGameObject("Title");
+    titleObj->layer = 100;
     titleObj->transform->y = -30.0f;
     auto statusText = titleObj->addComponent<TextRenderer>();
     statusText->screenSpace = true; statusText->anchorX = 0.5f; statusText->anchorY = 0.5f;
@@ -1071,9 +1074,14 @@ void buildBulletHell(Scene& scene) {
     auto timerText = mkText("Timer", 250.0f, 6.0f); // solo visible en debug (F1)
 
     // Barra de calor (reemplaza la barra de vida: el jefe se mide por calor, GDD 7).
-    scene.createGameObject("HeatBar")->addComponent<HeatBar>()->boss = state;
+    // layer alto -> se dibuja sobre todo (incl. bloques que caen creados en runtime).
+    auto heatBarObj = scene.createGameObject("HeatBar");
+    heatBarObj->layer = 100;
+    heatBarObj->addComponent<HeatBar>()->boss = state;
 
-    auto fade = scene.createGameObject("Fade")->addComponent<ScreenFade>();
+    auto fadeObj = scene.createGameObject("Fade");
+    fadeObj->layer = 200; // el velo de transicion cubre tambien el HUD
+    auto fade = fadeObj->addComponent<ScreenFade>();
     fade->fadeIn(0.6f);
 
     // Cablear el jefe.

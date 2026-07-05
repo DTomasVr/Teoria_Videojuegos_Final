@@ -62,6 +62,7 @@ namespace {
 
     // Lanzallamas + parches de fuego (GDD 4.2 / 6.2).
     constexpr float FIRE_RADIUS = 48.0f, FIRE_LIFE = 3.0f;   // parche persiste 3 s
+    constexpr float FIRE_HIT    = 30.0f; // radio LETAL < visual (la llama va cargada a la izq): mas indulgente
     constexpr float FLAME_RANGE = 300.0f, FLAME_CONE_HALF = 0.3927f; // cono de 45 grados
     constexpr float JET_TIME = 1.2f;        // duracion del chorro por ciclo
 
@@ -498,7 +499,7 @@ public:
         if (target && hp) {
             float cx = target->centerX(), cy = target->centerY();
             for (P& p : pool)
-                if (p.active && Collision::pointInCircle(cx, cy, p.x, p.y, FIRE_RADIUS)) { hp->kill(); break; }
+                if (p.active && Collision::pointInCircle(cx, cy, p.x, p.y, FIRE_HIT)) { hp->kill(); break; }
         }
     }
     void render() override {
@@ -541,6 +542,7 @@ public:
     float interval = 4.0f;
     float range = FLAME_RANGE;          // alcance (mayor en las paredes de la Camara 03)
     bool  active = false;
+    bool  coneDebugOnly = false;        // true = el cono (AoE) solo se dibuja en modo debug
     // Barrido opcional (GDD 6.3): el cono oscila y arrastra el fuego = "ola viajera".
     float sweepBase = PI * 0.5f, sweepRange = 0.0f, sweepSpeed = 0.0f;
 
@@ -577,6 +579,7 @@ public:
     }
     void render() override {
         if (!active) return;
+        if (coneDebugOnly && !Debug::isEnabled()) return; // el cono (AoE) solo en debug
         Scene& s = *gameObject->scene;
         float ox = gameObject->transform->x, oy = gameObject->transform->y;
         bool jetting = (timer >= interval - JET_TIME);
@@ -1198,6 +1201,7 @@ void buildCamara03(Scene& scene) {
         flame->sweepBase = flDefs[i].baseRad; flame->sweepRange = 0.5f;
         flame->range = 240.0f;                 // muy corto: deja un buen pasillo central
         flame->setOffset(i * 0.4f);            // desfases -> olas viajeras
+        flame->coneDebugOnly = true;           // Camara 03: el cono AoE solo se ve en debug
         addFlamethrowerArt(fl);
         flames.push_back(flame);
     }
