@@ -62,6 +62,11 @@ namespace {
     constexpr float WEAPON_R     = 178.0f; // radio del arma montada (cerca de la punta del brazo)
     constexpr float WEAPON_SCALE = 0.17f;  // tamaño del arma en la punta
 
+    // Bloques que caen (Fase 2): mas pequeños para que no atasquen la sala, y con
+    // reglas de sitio (no sobre la maquina central ni sobre otro bloque).
+    constexpr float BLOCK_MIN = 48.0f, BLOCK_MAX = 72.0f;
+    constexpr float BLOCK_CORE_CLEAR = 155.0f; // radio libre alrededor del chasis
+
     // Rotacion segun calor: mas rapida cuanto mas calor. A partir del 30% de calor
     // el sentido de giro ademas ALTERNA (ver REVERSE_PERIOD abajo).
     constexpr float SPIN_LOW = 28.0f, SPIN_MID = 46.0f, SPIN_HIGH = 68.0f;
@@ -328,7 +333,10 @@ public:
     DecalLayer*     decals = nullptr;
     float intensity = 0.0f; // 0..1, lo fija BossRoom desde el calor
 
-    void awake() override { fireTex = gameObject->scene->getAssets().loadTexture("assets/redacted/fx/fire.png"); }
+    void awake() override {
+        fireTex = gameObject->scene->getAssets().loadTexture("assets/redacted/fx/fire.png");
+        siteTex = gameObject->scene->getAssets().loadTexture("assets/redacted/hazard/nuke_site.png");
+    }
 
     void enable() { active = true; spawnTimer = 0.3f; }
     void reset()  { active = false; for (Patch& p : patches) p.active = false; }
@@ -356,9 +364,10 @@ public:
         Scene& s = *gameObject->scene;
         for (Patch& p : patches) {
             if (!p.active) continue;
-            if (p.warn > 0.0f) {   // telegrafo: anillo parpadeante (aun no arde)
+            if (p.warn > 0.0f) {   // telegrafo: la MISMA marca que la Camara 01 (nuke_site), redimensionada
                 float pulse = 0.5f + 0.5f * std::sin(p.warn * 26.0f);
-                Shapes::outlineCircle(s, p.x, p.y, FLAME_RADIUS, 255, 120, 40, (int)(80 + 150 * pulse));
+                float d = FLAME_RADIUS * 2.0f;
+                drawWorldFrame(s, siteTex, p.x, p.y, d, d, nullptr, 0.0f, 255, 255, 255, (int)(110 + 120 * pulse));
             } else {               // ardiendo: tile de fuego animado
                 float frac = p.life / FLAME_LIFE; if (frac < 0.0f) frac = 0.0f;
                 int a = (int)(80 + 150 * frac); if (a > 255) a = 255;
@@ -372,7 +381,7 @@ public:
 private:
     struct Patch { float x = 0, y = 0, life = 0, warn = 0; bool active = false; };
     std::vector<Patch> patches = std::vector<Patch>(80);
-    SDL_Texture* fireTex = nullptr; float animClock = 0.0f;
+    SDL_Texture* fireTex = nullptr; SDL_Texture* siteTex = nullptr; float animClock = 0.0f;
     bool active = false;
     float spawnTimer = 0.0f;
 
@@ -529,7 +538,7 @@ public:
         Scene& s = *gameObject->scene;
         float x = gameObject->transform->x, y = gameObject->transform->y;
         SDL_FRect src{ srcX, srcY, size, size }; // trozo de suelo que quedo como obstaculo
-        drawWorldFrame(s, mapTex, x, y, size, size, &src, 0.0f, 255, 255, 255, 255);
+        drawWorldFrame(s, mapTex, x, y, size, size, &src, 0.0f, 105, 105, 112, 255); // tinte oscuro
         Shapes::outlineRect(s, x, y, size, size, 110, 106, 114, 255);
     }
 private:
@@ -550,7 +559,7 @@ public:
     void awake() override { mapTex = gameObject->scene->getAssets().loadTexture("assets/redacted/map.jpeg"); }
     void enable() { active = true; spawnTimer = 2.0f; }
     void reset() {
-        active = false; falling.clear();
+        active = false; falling.clear(); placed.clear();
         for (GameObject* b : landed) if (b) gameObject->scene->destroy(b);
         landed.clear();
     }
@@ -572,27 +581,47 @@ public:
             Shapes::fillCircle(s, f.x, f.y, f.size * (0.3f + 0.5f * frac), 0, 0, 0, 150); // sombra que crece
             float topY = -HALF_H, cy = topY + (f.y - topY) * frac;                        // bloque descendiendo
             SDL_FRect src{ f.srcX, f.srcY, f.size, f.size }; // trozo de suelo que cae
-            drawWorldFrame(s, mapTex, f.x, cy, f.size, f.size, &src, 0.0f, 255, 255, 255, 255);
+            drawWorldFrame(s, mapTex, f.x, cy, f.size, f.size, &src, 0.0f, 105, 105, 112, 255); // tinte oscuro
         }
     }
 private:
     static constexpr float FALL_TIME = 1.4f;
-    struct Fall { float x = 0, y = 0, size = 0, timer = 0, srcX = 0, srcY = 0; };
+    struct Fall   { float x = 0, y = 0, size = 0, timer = 0, srcX = 0, srcY = 0; };
+    struct Placed { float x = 0, y = 0, size = 0; }; // bloque ya aterrizado (para no solaparse)
     std::vector<Fall> falling;
     std::vector<GameObject*> landed;
+    std::vector<Placed> placed;
     SDL_Texture* mapTex = nullptr;
     bool active = false; float spawnTimer = 0.0f;
 
+    // Sitio libre = no cae sobre la maquina central ni solapa un bloque ya aterrizado
+    // o uno que ya esta cayendo.
+    bool freeSpot(float x, float y, float size) const {
+        if (std::sqrt(x * x + y * y) < BLOCK_CORE_CLEAR + size * 0.5f) return false;
+        const float gap = 8.0f;
+        for (const Placed& p : placed)
+            if (std::fabs(x - p.x) < (size + p.size) * 0.5f + gap &&
+                std::fabs(y - p.y) < (size + p.size) * 0.5f + gap) return false;
+        for (const Fall& f : falling)
+            if (std::fabs(x - f.x) < (size + f.size) * 0.5f + gap &&
+                std::fabs(y - f.y) < (size + f.size) * 0.5f + gap) return false;
+        return true;
+    }
+
     void startFall() {
-        Fall f;
-        f.size = frand(70.0f, 105.0f);
-        f.x = frand(-HALF_W + f.size, HALF_W - f.size);
-        f.y = frand(-HALF_H + f.size, HALF_H - f.size);
-        f.timer = FALL_TIME;
-        // Recorte ALEATORIO del suelo, solo de la parte MEDIA del mapa (evita las paredes).
-        f.srcX = frand(MAP_FX0 + 40.0f, MAP_FX1 - 40.0f - f.size);
-        f.srcY = frand(MAP_FY0 + 40.0f, MAP_FY1 - 40.0f - f.size);
-        falling.push_back(f);
+        float size = frand(BLOCK_MIN, BLOCK_MAX);
+        for (int tries = 0; tries < 24; ++tries) { // busca un hueco valido
+            float x = frand(-HALF_W + size, HALF_W - size);
+            float y = frand(-HALF_H + size, HALF_H - size);
+            if (!freeSpot(x, y, size)) continue;
+            Fall f; f.size = size; f.x = x; f.y = y; f.timer = FALL_TIME;
+            // Recorte ALEATORIO del suelo, solo de la parte MEDIA del mapa (evita paredes).
+            f.srcX = frand(MAP_FX0 + 40.0f, MAP_FX1 - 40.0f - size);
+            f.srcY = frand(MAP_FY0 + 40.0f, MAP_FY1 - 40.0f - size);
+            falling.push_back(f);
+            return;
+        }
+        // sin hueco libre este ciclo: no cae bloque (evita amontonar)
     }
     void land(const Fall& f) {
         if (target && hp && Collision::circleVsAABB(target->centerX(), target->centerY(), target->radius,
@@ -604,6 +633,7 @@ private:
         auto sb = b->addComponent<SolidBlock>();
         sb->size = f.size; sb->srcX = f.srcX; sb->srcY = f.srcY;
         landed.push_back(b);
+        placed.push_back({ f.x, f.y, f.size });
     }
 };
 

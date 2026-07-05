@@ -388,9 +388,10 @@ public:
         }
     }
     void render() override {
-        // Barrido laser rojo durante los ultimos TURRET_TELE seg antes de disparar.
+        // Barrido laser rojo de trayectoria: solo en modo debug (F1). En juego normal no
+        // se muestra (las balas ya son visibles); ensuciaba la pantalla.
         float toFire = interval - timer;
-        if (toFire <= TURRET_TELE) {
+        if (Debug::isEnabled() && toFire <= TURRET_TELE) {
             float ox = gameObject->transform->x, oy = gameObject->transform->y;
             float pulse = 0.5f + 0.5f * std::sin(timer * 30.0f);
             int a = (int)(90 + 140 * pulse);
@@ -666,9 +667,10 @@ public:
     void render() override {
         Scene& s = *gameObject->scene;
         float x = gameObject->transform->x, y = gameObject->transform->y;
-        // Trozo FIJO del suelo (siempre la misma seccion) recortado del mapa.
+        // Trozo FIJO del suelo (siempre la misma seccion) recortado del mapa, con un
+        // tinte gris-oscuro para que se distinga del suelo normal (es un obstaculo).
         SDL_FRect src{ 430.0f, 360.0f, 130.0f, 190.0f };
-        drawWorldFrame(s, mapTex, x, y, w, h, &src, 0.0f, 255, 255, 255, 255);
+        drawWorldFrame(s, mapTex, x, y, w, h, &src, 0.0f, 105, 105, 112, 255);
         Shapes::outlineRect(s, x, y, w, h, 130, 124, 116, 255); // borde para leerlo como obstaculo
     }
 private:
