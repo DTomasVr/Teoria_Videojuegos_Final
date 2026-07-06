@@ -75,6 +75,9 @@
     <ClCompile Include="game\Sector1.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
+    <ClCompile Include="game\Screens.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
     <ClCompile Include="game\Shooter.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
@@ -174,6 +177,9 @@
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="game\SceneFlow.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
+    <ClInclude Include="game\Screens.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="game\Shooter.h">

@@ -38,6 +38,7 @@
     <ClCompile Include="game\BulletHell.cpp" />
     <ClCompile Include="game\Platformer.cpp" />
     <ClCompile Include="game\Sector1.cpp" />
+    <ClCompile Include="game\Screens.cpp" />
     <ClCompile Include="game\Shooter.cpp" />
     <ClCompile Include="game\TopDown.cpp" />
     <ClCompile Include="main.cpp" />
@@ -73,6 +74,7 @@
     <ClInclude Include="game\BulletHell.h" />
     <ClInclude Include="game\Platformer.h" />
     <ClInclude Include="game\SceneFlow.h" />
+    <ClInclude Include="game\Screens.h" />
     <ClInclude Include="game\Sector1.h" />
     <ClInclude Include="game\Shooter.h" />
     <ClInclude Include="game\TopDown.h" />

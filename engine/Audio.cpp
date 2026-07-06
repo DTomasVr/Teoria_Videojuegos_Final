@@ -2,6 +2,7 @@
 
 #include <SDL3/SDL.h>
 #include <unordered_map>
+#include <string>
 
 // El header de SDL3_mixer solo se incluye si esta disponible. Asi, si el motor se
 // compila sin la libreria, el audio queda en stubs (no rompe el build). Con la lib
@@ -19,6 +20,9 @@ namespace Audio {
 
 static MIX_Mixer* g_mixer = nullptr;
 static std::unordered_map<std::string, MIX_Audio*> g_sounds;
+static MIX_Track* g_musicTrack = nullptr;                       // pista unica de musica de fondo
+static std::unordered_map<std::string, MIX_Audio*> g_music;    // cache de temas de musica
+static std::string g_currentMusic;                             // ruta del tema sonando ahora
 
 bool init() {
     if (g_mixer) return true;
@@ -55,7 +59,41 @@ void play(const std::string& name) {
     MIX_PlayAudio(g_mixer, it->second);
 }
 
+void playMusic(const std::string& path) {
+    if (!g_mixer) return;
+    if (path == g_currentMusic) return; // ya es el tema actual: no reiniciar (musica fluida)
+
+    MIX_Audio* audio = nullptr;
+    auto it = g_music.find(path);
+    if (it != g_music.end()) audio = it->second;
+    else {
+        audio = MIX_LoadAudio(g_mixer, path.c_str(), false); // streaming (los temas son largos)
+        if (!audio) {
+            SDL_Log("Audio: no se pudo cargar la musica '%s': %s", path.c_str(), SDL_GetError());
+            return;
+        }
+        g_music[path] = audio;
+    }
+    if (!g_musicTrack) g_musicTrack = MIX_CreateTrack(g_mixer);
+    if (!g_musicTrack) return;
+    MIX_SetTrackAudio(g_musicTrack, audio);
+    SDL_PropertiesID opts = SDL_CreateProperties();
+    SDL_SetNumberProperty(opts, MIX_PROP_PLAY_LOOPS_NUMBER, -1); // -1 = bucle infinito
+    MIX_PlayTrack(g_musicTrack, opts);
+    SDL_DestroyProperties(opts);
+    g_currentMusic = path;
+}
+
+void stopMusic() {
+    if (g_musicTrack) MIX_StopTrack(g_musicTrack, 0);
+    g_currentMusic.clear();
+}
+
 void shutdown() {
+    if (g_musicTrack) { MIX_DestroyTrack(g_musicTrack); g_musicTrack = nullptr; }
+    for (auto& [n, a] : g_music) MIX_DestroyAudio(a);
+    g_music.clear();
+    g_currentMusic.clear();
     for (auto& [n, a] : g_sounds) MIX_DestroyAudio(a);
     g_sounds.clear();
     if (g_mixer) { MIX_DestroyMixer(g_mixer); g_mixer = nullptr; }
@@ -67,6 +105,8 @@ void shutdown() {
 bool init()                                            { SDL_Log("Audio: SDL3_mixer no disponible; sin sonido."); return false; }
 bool load(const std::string&, const std::string&)      { return false; }
 void play(const std::string&)                          {}
+void playMusic(const std::string&)                     {}
+void stopMusic()                                       {}
 void shutdown()                                        {}
 
 #endif

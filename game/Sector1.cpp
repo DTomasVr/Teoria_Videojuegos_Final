@@ -796,7 +796,8 @@ void buildCamara01(Scene& scene) {
     GameObject* logicObj = scene.createGameObject("Chamber");
     auto chamber = logicObj->addComponent<Chamber>();
     chamber->name = "CAMARA 01 - EL POZO";
-    chamber->nextScene = 6; // al superarla -> Camara 02
+    Audio::playMusic("assets/audio/music_camara01.ogg"); // musica de la Camara 01 (en bucle)
+    chamber->nextScene = 12; // al superarla -> cinematica de entrada a Camara 02
 
     // Jugador: aparece en el centro (GDD: moverse es sobrevivir).
     GameObject* player = scene.createGameObject("Player");
@@ -947,8 +948,9 @@ void buildCamara02(Scene& scene) {
     GameObject* logicObj = scene.createGameObject("Chamber");
     auto chamber = logicObj->addComponent<Chamber>();
     chamber->name = "CAMARA 02 - LA TRINCHERA";
+    Audio::playMusic("assets/audio/music_camara02.ogg"); // musica de la Camara 02 (en bucle)
     chamber->introMsg = "SUPRESION CINETICA. ETAPA 2";
-    chamber->nextScene = 7; // al superarla -> Camara 03
+    chamber->nextScene = 13; // al superarla -> cinematica de entrada a Camara 03
 
     // Bloque de escombros SOLIDO en el cuadrante SO (dilema tactico).
     GameObject* debris = scene.createGameObject("Debris");
@@ -1131,8 +1133,9 @@ void buildCamara03(Scene& scene) {
     GameObject* logicObj = scene.createGameObject("Chamber");
     auto chamber = logicObj->addComponent<Chamber>();
     chamber->name = "CAMARA 03 - EL SUELO DE MATANZA";
+    Audio::playMusic("assets/audio/music_camara03.ogg"); // musica de la Camara 03 (en bucle)
     chamber->introMsg = "SUB-NIVEL 0. TODOS LOS SISTEMAS";
-    chamber->nextScene = 4; // al superarla -> Jefe HERCULES-1
+    chamber->nextScene = 14; // al superarla -> cinematica de entrada al Jefe HERCULES-1
 
     // Jugador (sala abierta, sin cobertura). Arranca al centro, lejos de las torretas
     // de techo y suelo que se deslizan.

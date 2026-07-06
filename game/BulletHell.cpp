@@ -1,4 +1,5 @@
 #include "BulletHell.h"
+#include "SceneFlow.h"
 
 #include <SDL3/SDL.h>
 #include <cmath>
@@ -111,8 +112,11 @@ namespace {
     constexpr float MAP_FX0 = 150.0f, MAP_FY0 = 145.0f, MAP_FX1 = 885.0f, MAP_FY1 = 880.0f;
 
     float frand(float a, float b) { return a + (b - a) * ((float)std::rand() / (float)RAND_MAX); }
-    float randX() { return frand(-HALF_W + 60.0f, HALF_W - 60.0f); }
-    float randY() { return frand(-HALF_H + 60.0f, HALF_H - 60.0f); }
+    // Margen pequeño: los peligros de Fase 2 deben poder aparecer en los BORDES y
+    // ESQUINAS (antes 60px hacia dentro dejaba las esquinas siempre a salvo y el jugador
+    // se acampaba ahi). 18px < medio cuerpo del clon, asi que cubren donde puede pararse.
+    float randX() { return frand(-HALF_W + 18.0f, HALF_W - 18.0f); }
+    float randY() { return frand(-HALF_H + 18.0f, HALF_H - 18.0f); }
 }
 
 // Componentes locales de esta escena. Namespace anonimo (enlace interno) para no
@@ -533,17 +537,15 @@ private:
 class SolidBlock : public Component {
 public:
     float size = 80.0f;
-    float srcX = 0.0f, srcY = 0.0f; // recorte del mapa (lo fija FallingBlocks al aterrizar)
-    void awake() override { mapTex = gameObject->scene->getAssets().loadTexture("assets/redacted/map.jpeg"); }
+    float srcX = 0.0f, srcY = 0.0f; // (sin uso con debris.png; lo mantiene FallingBlocks por compat)
+    void awake() override { blockTex = gameObject->scene->getAssets().loadTexture("assets/redacted/hazard/debris.png"); }
     void render() override {
         Scene& s = *gameObject->scene;
         float x = gameObject->transform->x, y = gameObject->transform->y;
-        SDL_FRect src{ srcX, srcY, size, size }; // trozo de suelo que quedo como obstaculo
-        drawWorldFrame(s, mapTex, x, y, size, size, &src, 0.0f, 105, 105, 112, 255); // tinte oscuro
-        Shapes::outlineRect(s, x, y, size, size, 110, 106, 114, 255);
+        drawWorldFrame(s, blockTex, x, y, size, size, nullptr, 0.0f, 255, 255, 255, 255); // sprite de escombros
     }
 private:
-    SDL_Texture* mapTex = nullptr;
+    SDL_Texture* blockTex = nullptr;
 };
 
 // ----------------------------------------------------------------------------
@@ -557,7 +559,7 @@ public:
     CircleCollider* target = nullptr;
     Health*         hp = nullptr;
 
-    void awake() override { mapTex = gameObject->scene->getAssets().loadTexture("assets/redacted/map.jpeg"); }
+    void awake() override { blockTex = gameObject->scene->getAssets().loadTexture("assets/redacted/hazard/debris.png"); }
     void enable() { active = true; spawnTimer = 2.0f; }
     void reset() {
         active = false; falling.clear(); placed.clear();
@@ -581,8 +583,7 @@ public:
             float frac = 1.0f - f.timer / FALL_TIME; if (frac < 0.0f) frac = 0.0f;
             Shapes::fillCircle(s, f.x, f.y, f.size * (0.3f + 0.5f * frac), 0, 0, 0, 150); // sombra que crece
             float topY = -HALF_H, cy = topY + (f.y - topY) * frac;                        // bloque descendiendo
-            SDL_FRect src{ f.srcX, f.srcY, f.size, f.size }; // trozo de suelo que cae
-            drawWorldFrame(s, mapTex, f.x, cy, f.size, f.size, &src, 0.0f, 105, 105, 112, 255); // tinte oscuro
+            drawWorldFrame(s, blockTex, f.x, cy, f.size, f.size, nullptr, 0.0f, 255, 255, 255, 255); // sprite de escombros
         }
     }
 private:
@@ -592,7 +593,7 @@ private:
     std::vector<Fall> falling;
     std::vector<GameObject*> landed;
     std::vector<Placed> placed;
-    SDL_Texture* mapTex = nullptr;
+    SDL_Texture* blockTex = nullptr;
     bool active = false; float spawnTimer = 0.0f;
 
     // Sitio libre = no cae sobre la maquina central ni solapa un bloque ya aterrizado
@@ -710,7 +711,7 @@ public:
             }
             case BossPhase::Ganado:
                 winTimer -= dt; shockR += 950.0f * dt;
-                if (winTimer <= 0.0f) resetProgress(true); break;
+                if (winTimer <= 0.0f) SceneFlow::requestScene(16); break; // -> cinematica de victoria
         }
         updateHUD();
     }
@@ -917,6 +918,26 @@ private:
     bool contact = false, active = false; float cooldown = 0.0f, flash = 0.0f, animT = 0.0f;
 };
 
+// ----------------------------------------------------------------------------
+//  Cartel de transicion a Fase 2 (GDD 7.5): durante los ~3 s de TRANSICION del jefe
+//  cubre la pantalla con el fotograma boss_fase2 SIN cambiar de escena (conserva el
+//  calor, el progreso y los decals). Espacio de PANTALLA, sobre el gameplay y el HUD.
+// ----------------------------------------------------------------------------
+class BossFase2Card : public Component {
+public:
+    BossRoom* boss = nullptr;
+    void awake() override { tex = gameObject->scene->getAssets().loadTexture("assets/redacted/scenes/boss_fase2.jpg"); }
+    void render() override {
+        if (!boss || boss->phase != BossPhase::Transicion || !tex) return;
+        SDL_Renderer* r = gameObject->scene->getRenderer();
+        int ow = 0, oh = 0; SDL_GetCurrentRenderOutputSize(r, &ow, &oh);
+        SDL_FRect dst{ 0.0f, 0.0f, (float)ow, (float)oh };
+        SDL_RenderTexture(r, tex, nullptr, &dst);
+    }
+private:
+    SDL_Texture* tex = nullptr;
+};
+
 } // namespace (componentes locales)
 
 // ============================================================================
@@ -949,6 +970,7 @@ void buildBulletHell(Scene& scene) {
 
     GameObject* logicObj = scene.createGameObject("RoomLogic");
     auto state = logicObj->addComponent<BossRoom>();
+    Audio::playMusic("assets/audio/music_boss.ogg"); // tema del jefe HERCULES-1 (en bucle)
 
     // 4 placas en las 4 esquinas (GDD 7.3), bajo el jugador.
     const float pX = HALF_W - 100.0f, pY = HALF_H - 100.0f;
@@ -1078,6 +1100,11 @@ void buildBulletHell(Scene& scene) {
     auto heatBarObj = scene.createGameObject("HeatBar");
     heatBarObj->layer = 100;
     heatBarObj->addComponent<HeatBar>()->boss = state;
+
+    // Cartel de transicion a Fase 2 (se muestra solo durante la fase TRANSICION).
+    auto fase2Card = scene.createGameObject("Fase2Card");
+    fase2Card->layer = 150; // sobre el HUD, bajo el velo de fundido
+    fase2Card->addComponent<BossFase2Card>()->boss = state;
 
     auto fadeObj = scene.createGameObject("Fade");
     fadeObj->layer = 200; // el velo de transicion cubre tambien el HUD

@@ -15,6 +15,11 @@ class Health : public Component {
 public:
     bool alive = true;
 
+    // MODO DIOS (test de progresion): invulnerabilidad permanente para TODOS los Health.
+    // Es global (static) y sobrevive a los cambios de escena, asi se puede recorrer el
+    // flujo sin morir. Se alterna con una tecla en main.cpp.
+    inline static bool godMode = false;
+
     // Callback de muerte: lo define el juego (reventar en particulas, reiniciar la
     // sala y reaparecer al siguiente clon). Se dispara exactamente una vez por muerte.
     std::function<void()> onDeath;
@@ -23,7 +28,7 @@ public:
     void setInvulnerable(float seconds) {
         if (seconds > invulnTimer) invulnTimer = seconds;
     }
-    bool isInvulnerable() const { return invulnTimer > 0.0f; }
+    bool isInvulnerable() const { return godMode || invulnTimer > 0.0f; }
 
     // Muerte instantanea. No hace nada si esta invulnerable o ya muerto (idempotente).
     void kill() {

@@ -19,4 +19,11 @@ namespace Audio {
 
     bool load(const std::string& name, const std::string& path); // SFX predescodificado
     void play(const std::string& name);                          // dispara un SFX
+
+    // Musica de fondo EN BUCLE. Carga (y cachea) el archivo y lo reproduce en bucle
+    // en una pista propia, sustituyendo a la que estuviera sonando. Si ya esta sonando
+    // esa misma ruta, no la reinicia (asi la musica sigue fluida entre escenas que
+    // comparten pista). Tolerante a fallos: sin mixer o sin archivo, no hace nada.
+    void playMusic(const std::string& path);
+    void stopMusic(); // detiene la musica de fondo
 }
