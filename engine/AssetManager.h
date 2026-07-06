@@ -5,8 +5,7 @@
 struct SDL_Renderer;
 struct SDL_Texture;
 
-// Carga y guarda en cache las texturas. Es el DUENO de todas ellas:
-// si dos objetos piden la misma imagen, comparten la misma textura en memoria.
+// Carga y guarda en cache las texturas.
 
 class AssetManager {
 public:
@@ -18,7 +17,6 @@ public:
     AssetManager& operator=(const AssetManager&) = delete;
 
     // Devuelve la textura de esa ruta. La carga SOLO la primera vez;
-    // las siguientes devuelve la que ya esta en cache. nullptr si falla.
     SDL_Texture* loadTexture(const std::string& path);
 
 private:

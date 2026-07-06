@@ -3,11 +3,9 @@
 #include "Component.h"
 #include "BlendMode.h"
 
-struct SDL_Texture; // declaracion adelantada: SDL solo aparece en el .cpp
+struct SDL_Texture; // declaracion adelantada: SDL solo aparece en el.cpp
 
 // Dibuja una imagen segun el Transform. Puede dibujar la imagen completa o,
-// si se le da un recorte (setSourceRect), solo una porcion (un frame de spritesheet).
-// flipX / flipY permiten voltear el dibujo (p.ej. mirar al otro lado) sin tocar SDL.
 
 class SpriteRenderer : public Component {
 public:
@@ -21,7 +19,6 @@ public:
     void render() override;
 
     // Cambia que textura se dibuja (la usa el SpriteAnimator al cambiar de animacion).
-    // La textura sigue siendo propiedad del AssetManager: solo la tomamos prestada.
     void setTexture(SDL_Texture* tex);
 
     // Dibujar solo una porcion de la imagen (un frame del spritesheet).
@@ -30,7 +27,6 @@ public:
     }
 
     // Tinte y transparencia (modulacion de color). r,g,b,a en 0..255. 255,255,255,255
-    // = sin cambios. Sirve para el flash de dano, resaltar invulnerabilidad, teñir, etc.
     void setColor(int r, int g, int b, int a = 255) {
         colR = r; colG = g; colB = b; colA = a;
     }

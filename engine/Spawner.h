@@ -4,7 +4,6 @@
 #include "Scene.h"
 
 // Llama a la funcion 'spawn' cada 'interval' segundos. La funcion recibe la
-// escena y crea/configura lo que quieras (enemigos, obstaculos, items).
 
 class Spawner : public Component {
 public:

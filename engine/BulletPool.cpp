@@ -6,6 +6,7 @@
 #include "CircleCollider.h"
 #include "Health.h"
 #include "Collision.h"
+#include "Debugger.h"
 
 #include <SDL3/SDL.h>
 #include <cmath>
@@ -18,7 +19,6 @@ BulletPool::BulletPool(int capacity) {
 void BulletPool::setSprite(const std::string& p) {
     path = p;
     // El componente ya esta agregado (la escena esta lista): cargar de inmediato.
-    // El AssetManager cachea por ruta, asi que no se duplica si ya estaba cargada.
     if (gameObject && gameObject->scene)
         texture = gameObject->scene->getAssets().loadTexture(path);
 }
@@ -89,8 +89,6 @@ void BulletPool::update(float dt) {
     if (!target) return;
 
     // I-frames del Dash: si el objetivo es invulnerable, ni entramos al bucle de
-    // colision (mas barato y coincide con el diseno del DOCX: la variable "inmune"
-    // evita entrar a los loops de colision).
     Health* hp = target->gameObject->getComponent<Health>();
     if (hp && hp->isInvulnerable()) return;
 
@@ -122,7 +120,6 @@ void BulletPool::render() {
         for (const Bullet& b : pool) {
             if (!b.active) continue;
             // Recorte del frame: columna 'type' si es tira, recorte fijo si useSrc,
-            // textura completa si no. 'aspect' mantiene la forma real del sprite.
             SDL_FRect src; const SDL_FRect* srcPtr = nullptr; float aspect = 1.0f;
             if (useStrip) {
                 int c = ((b.type % frameCount) + frameCount) % frameCount;
@@ -160,4 +157,9 @@ void BulletPool::render() {
             SDL_RenderFillRect(renderer, &dst);
         }
     }
+
+    // Debug (F1): circulo de COLISION real de cada bala (radio de impacto).
+    if (Debug::isEnabled())
+        for (const Bullet& b : pool)
+            if (b.active) Debug::drawCircle(*gameObject->scene, b.x, b.y, b.radius);
 }

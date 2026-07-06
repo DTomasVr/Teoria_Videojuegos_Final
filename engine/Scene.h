@@ -26,12 +26,10 @@ public:
     }
 
     // Marca un objeto para destruirse. No lo borra en el acto: se elimina al
-    // final del frame (asi es seguro llamarlo desde un update o una colision).
     void destroy(GameObject* obj) { if (obj) obj->alive = false; }
 
     void update(float dt) {
         // Conteo fijo: los objetos que se creen durante el frame (spawners) se
-        // agregan al final y NO se actualizan hasta el siguiente frame.
         size_t count = objects.size();
         for (size_t i = 0; i < count; ++i) objects[i]->update(dt);
 
@@ -40,9 +38,6 @@ public:
     }
 
     // Dibuja por 'layer' ascendente, ESTABLE (conserva el orden de creacion dentro de
-    // cada capa). NO reordena 'objects' para no alterar el orden de update (p.ej. ChildOf
-    // necesita padre-antes-que-hijo). Asi el HUD (layer alto) queda siempre encima aunque
-    // haya objetos creados en runtime (los bloques que caen) despues de el.
     void render() {
         renderOrder.clear();
         for (auto& o : objects) renderOrder.push_back(o.get());

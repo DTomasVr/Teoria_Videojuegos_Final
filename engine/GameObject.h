@@ -15,8 +15,6 @@ class GameObject {
 public:
     std::string name;
     // Etiqueta y capa para filtrar objetos SIN comparar por nombre (mas robusto y
-    // barato que name == "..."). Ej.: en onCollision, if (other->tag == "bala").
-    // 'layer' es un entero libre para agrupar (jugador, enemigo, peligro, muro...).
     std::string tag;
     int layer = 0;
     Scene* scene = nullptr;

@@ -36,13 +36,6 @@ void TilemapRenderer::awake() {
 }
 
 // Carga el mapa completo desde un archivo de texto. Formato:
-//   tileset <ruta de la imagen>   (la ruta puede tener espacios: el resto de la linea)
-//   tile <w> <h>                  (tamano del tile en la imagen)
-//   columns <n>                   (columnas del tileset)
-//   solid <i> <i> ...             (indices solidos; opcional, puede repetirse)
-//   luego la grilla: una fila por linea, indices separados por coma, -1 = vacio.
-// Lineas vacias y las que empiezan con # se ignoran. Devuelve false ante cualquier
-// error (y hace SDL_Log) sin dejar el componente a medio configurar.
 bool TilemapRenderer::loadFromFile(const std::string& filePath) {
     std::ifstream file(filePath);
     if (!file) {
@@ -162,23 +155,12 @@ bool TilemapRenderer::loadFromFile(const std::string& filePath) {
 
 void TilemapRenderer::update(float /*dt*/) {
     // Build perezoso: el alumno llama setMap/setSolid DESPUES de addComponent, asi
-    // que en awake el mapa todavia esta vacio. Generamos los colliders la primera
-    // vez que corre el update, cuando el mapa ya esta definido.
     if (built) return;
     buildColliders();
     built = true;
 }
 
 // Carga un mapa exportado desde Tiled en formato JSON. SUPUESTOS DEL EXPORT:
-//  - Mapa ortogonal, tileset EMBEBIDO en el JSON (no externo .tsx).
-//  - Se usa la PRIMERA capa de tipo "tilelayer" (si hay varias, se ignora el resto).
-//  - Se ignoran los bits de flip/rotacion de Tiled (se enmascaran los 3 bits altos
-//    del gid): se asume que el mapa no usa tiles volteados. LIMITACION conocida.
-//  - La capa de objetos NO se lee en este paso.
-// CONVERSION DE INDICES: Tiled usa 0 = vacio y los tiles empiezan en "firstgid";
-// nuestro motor usa -1 = vacio y 0 = primer tile. Por cada gid: 0 -> -1, y >0 ->
-// (gid sin bits de flip) - firstgid. SOLIDEZ: por cada tile del tileset con una
-// propiedad booleana name=="solid" y value==true, se llama a setSolid(id).
 bool TilemapRenderer::loadFromTiledJson(const std::string& filePath) {
     using json = nlohmann::json;
 
@@ -228,7 +210,6 @@ bool TilemapRenderer::loadFromTiledJson(const std::string& filePath) {
     int firstgid = ts.value("firstgid", 1); // normalmente 1; no lo hardcodeamos
 
     // La ruta de la imagen viene relativa al archivo del mapa: la resolvemos
-    // respecto a la carpeta del .json para pasarla al AssetManager.
     std::string dir;
     size_t slash = filePath.find_last_of("/\\");
     if (slash != std::string::npos) dir = filePath.substr(0, slash + 1);
@@ -304,8 +285,6 @@ void TilemapRenderer::buildColliders() {
             if (!isSolid(idx)) continue;  // no marcada como solida
 
             // Un GameObject estatico (sin RigidBody) por celda solida, con el
-            // BoxCollider centrado en el centro de la celda (el collider se ancla
-            // al CENTRO del Transform).
             GameObject* tileObj = gameObject->scene->createGameObject("TilemapCollider");
             tileObj->transform->x = t->x + col * worldTileW + worldTileW * 0.5f;
             tileObj->transform->y = t->y + row * worldTileH + worldTileH * 0.5f;
@@ -333,8 +312,6 @@ void TilemapRenderer::render() {
     SDL_GetCurrentRenderOutputSize(renderer, &outW, &outH);
 
     // Rectangulo de MUNDO que se ve en pantalla, para dibujar solo las celdas
-    // visibles (culling). Con camara, la vista esta centrada en su Transform y
-    // escalada por el zoom; sin camara, pantalla == mundo.
     float viewLeft, viewTop, viewRight, viewBottom;
     if (cam) {
         float camX = cam->gameObject->transform->x;
@@ -349,7 +326,6 @@ void TilemapRenderer::render() {
     }
 
     // Bordes de mundo -> indices de columna/fila respecto al origen del mapa,
-    // con clamp a los limites del mapa.
     int colMin = (int)std::floor((viewLeft - t->x) / worldTileW);
     int colMax = (int)std::floor((viewRight - t->x) / worldTileW);
     int rowMin = (int)std::floor((viewTop - t->y) / worldTileH);
@@ -372,11 +348,6 @@ void TilemapRenderer::render() {
                 (float)tileW, (float)tileH };
 
             // Esquinas de la celda en el MUNDO: la izq/arriba de esta celda y la
-            // izq/arriba de la SIGUIENTE (que es su der/abajo). Pasamos ambas a
-            // pantalla y redondeamos cada borde a entero. Asi el borde derecho de
-            // un tile cae en el mismo entero que el borde izquierdo del vecino:
-            // sin costura sub-pixel ni solape (la fuente del bleeding al escalar
-            // con coordenadas fraccionarias por camara/zoom).
             float worldLeft = t->x + col * worldTileW;
             float worldTop = t->y + row * worldTileH;
             float worldRight = worldLeft + worldTileW;

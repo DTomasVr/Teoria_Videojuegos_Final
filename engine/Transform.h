@@ -2,7 +2,6 @@
 #include "Component.h"
 
 // Datos espaciales del objeto. Todo GameObject tiene uno por defecto.
-// Es solo datos: no toca SDL.
 
 class Transform : public Component {
 public:

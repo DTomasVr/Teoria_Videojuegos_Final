@@ -1,17 +1,11 @@
 #pragma once
 #include "Component.h"
 
-// Define que parte del mundo se ve. La posicion la da el Transform del objeto:
-// ese punto del mundo queda en el CENTRO de la pantalla.
-// Mover el Transform de la camara = desplazar la vista (seguir al jugador, etc).
-
 class Camera : public Component {
 public:
     float zoom = 1.0f; // 1 = normal, 2 = acercado, 0.5 = alejado
 
     // Si se fijan (>0), el zoom se AJUSTA solo cada frame para que este rectangulo de
-    // mundo quepa entero en la pantalla (manteniendo proporcion): la sala llena la
-    // vista y lo que sobra queda en negro (letterbox). Ideal para pantalla completa.
     float fitWidth = 0.0f, fitHeight = 0.0f;
     void fitToWorld(float w, float h) { fitWidth = w; fitHeight = h; }
 

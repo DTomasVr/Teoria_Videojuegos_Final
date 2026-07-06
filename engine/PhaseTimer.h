@@ -4,16 +4,6 @@
 #include "Component.h"
 
 // Temporizador de sala con FASES. Modela la estructura de una camara de "REDACTED"
-// (GDD 5.2): se sobrevive durante 'duration' segundos y cada cierto tiempo el
-// patron de peligros escala de fase (mas densidad/velocidad). Es logica pura: no
-// toca SDL.
-//
-//   auto pt = obj->addComponent<PhaseTimer>();
-//   pt->duration = 40.0f;
-//   pt->addPhase(20.0f, []{ subirDificultad(); }); // a los 20 s
-//   pt->onComplete = []{ ganar(); };               // al sobrevivir
-//   ... y para el HUD: pt->remaining()
-// Al reaparecer el clon NO se toca; para reiniciar la sala entera: pt->reset().
 
 class PhaseTimer : public Component {
 public:

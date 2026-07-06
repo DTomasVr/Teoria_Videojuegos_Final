@@ -4,19 +4,9 @@
 #include "Component.h"
 #include "BlendMode.h"
 
-struct SDL_Texture; // declaracion adelantada: SDL solo aparece en el .cpp
+struct SDL_Texture; // declaracion adelantada: SDL solo aparece en el.cpp
 
-// Sistema de particulas con pool estatico (misma idea que BulletPool, pero para
-// EFECTOS visuales, no colision). Sirve para el gore al morir el clon (chorro de
-// sangre), chispas hidraulicas, humo, etc. Cada particula se mueve, opcionalmente
-// cae por gravedad, encoge y se desvanece (alpha) a lo largo de su vida.
-//
-// Emision: emitBurst(x,y,count) lanza un estallido radial usando los parametros
-// PUBLICOS de abajo (velocidad, vida, tamano, color) — el juego los ajusta antes
-// de emitir. emit(...) permite control total de una particula concreta.
-//
-// Sin textura se dibujan cuadrados de color (util sin assets). El modo de mezcla
-// por defecto es Alpha; para gore vistoso el juego suele poner BlendMode::Add.
+// Sistema de particulas con pool estatico (misma idea que BulletPool)
 
 class ParticleSystem : public Component {
 public:

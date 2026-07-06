@@ -15,8 +15,7 @@ void FollowCamera::update(float dt) {
     float desiredX = cam->x;
     float desiredY = cam->y;
 
-    // ...y solo se reubica si el objetivo cruza el borde de la zona muerta,
-    // lo justo para dejarlo de nuevo sobre ese borde.
+    //...y solo se reubica si el objetivo cruza el borde de la zona muerta,
     float dx = tgt->x - cam->x;
     if      (dx >  halfW) desiredX = tgt->x - halfW;
     else if (dx < -halfW) desiredX = tgt->x + halfW;

@@ -2,7 +2,7 @@
 
 class GameObject; // declaracion adelantada
 
-// Clase base de todo componente. NO incluye SDL: es logica pura.
+// Clase base de todo componente.
 
 class Component {
 public:
@@ -16,6 +16,5 @@ public:
     virtual void render() {}
 
     // Lo llama la fase de fisica cuando este objeto solapa con 'other'.
-    // Un componente (Health, etc.) puede sobrescribirlo para reaccionar.
     virtual void onCollision(GameObject* other) {}
 };

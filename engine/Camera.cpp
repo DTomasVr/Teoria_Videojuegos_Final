@@ -12,7 +12,6 @@ void Camera::awake() {
 
 void Camera::update(float /*dt*/) {
     // Zoom de AJUSTE: encaja el rectangulo [fitWidth x fitHeight] en la pantalla
-    // manteniendo proporcion (el lado que sobra queda en negro).
     if (fitWidth > 0.0f && fitHeight > 0.0f) {
         SDL_Renderer* renderer = gameObject->scene->getRenderer();
         int w = 0, h = 0;

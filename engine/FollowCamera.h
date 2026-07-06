@@ -3,9 +3,6 @@
 
 class GameObject;
 
-// Mueve la camara para seguir a un objetivo, pero SOLO cuando este sale de la
-// "zona muerta": un rectangulo centrado en la camara. Mientras el objetivo se
-// mueve dentro de la zona, la camara no se mueve (evita temblores y mareos).
 
 class FollowCamera : public Component {
 public:

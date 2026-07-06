@@ -4,9 +4,7 @@
 #include <unordered_map>
 #include <string>
 
-// El header de SDL3_mixer solo se incluye si esta disponible. Asi, si el motor se
-// compila sin la libreria, el audio queda en stubs (no rompe el build). Con la lib
-// instalada (rutas ya cableadas en el .vcxproj) se usa la API nueva MIX_*.
+// El header de SDL3_mixer solo se incluye si esta disponible. Asi, si el motor se compila sin SDL3_mixer, el audio queda deshabilitado y no hay errores de compilacion.
 #if __has_include(<SDL3_mixer/SDL_mixer.h>)
   #include <SDL3_mixer/SDL_mixer.h>
   #define SDLUPC_HAS_MIXER 1

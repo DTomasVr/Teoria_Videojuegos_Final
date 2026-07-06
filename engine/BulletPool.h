@@ -4,22 +4,10 @@
 #include <functional>
 #include "Component.h"
 
-struct SDL_Texture; // declaracion adelantada: SDL solo aparece en el .cpp
+struct SDL_Texture; 
 class CircleCollider;
 
 // Pool ESTATICO de proyectiles para bullet hell. Reserva de una vez 'capacity'
-// balas (GDD 9.2: 1000 concurrentes) y las reutiliza, para NO pedir/soltar memoria
-// en runtime (la causa tipica de stuttering). Cada bala es un struct plano, NO un
-// GameObject: mover cientos de GameObjects con su unordered_map de componentes por
-// frame seria carisimo.
-//
-// COLISION EN O(n): las balas NO pasan por la fase O(n^2) de la Scene. El pool
-// testea sus balas activas contra UNA sola hurtbox (el CircleCollider del jugador,
-// via setTarget): 1 contra N, no N contra N. Ademas, si el objetivo tiene un Health
-// invulnerable (Dash), se SALTA el bucle de colision entero (i-frames baratos).
-//
-// Es un Component: se agrega a un GameObject "manager" de la sala y la Scene ya lo
-// actualiza y dibuja como a cualquier otro.
 
 class BulletPool : public Component {
 public:
@@ -35,33 +23,26 @@ public:
     explicit BulletPool(int capacity = 1000);
 
     // --- Aspecto -------------------------------------------------------------
-    // Sprite opcional para dibujar cada bala. Sin textura se dibuja un cuadrado de
-    // color (fallback util para prototipar sin assets).
     void setSprite(const std::string& path);
     void setSourceRect(float x, float y, float w, float h); // recorte del sprite
     void setColor(int r, int g, int b, int a = 255);        // tinte / color del fallback
     void setDrawScale(float s) { drawScale = s; }           // tamano visual = 2*radius*s
 
     // Tira horizontal de variantes: el campo 'type' de cada bala elige la COLUMNA
-    // (frameW x frameH). El dibujo respeta la relacion de aspecto del frame (balas
-    // alargadas se ven alargadas, no cuadradas).
     void setStrip(int frameW, int frameH, int frameCount);
     // Gira cada bala hacia su velocidad (el arte apunta hacia ARRIBA en reposo).
     void setRotateToVelocity(bool on) { rotateVel = on; }
 
     // --- Configuracion de simulacion ----------------------------------------
-    // Rectangulo de mundo fuera del cual una bala se desactiva (culling de sala).
     void setBounds(float minX, float minY, float maxX, float maxY);
 
     // Hurtbox que las balas pueden impactar (normalmente la del jugador).
     void setTarget(CircleCollider* hurtbox) { target = hurtbox; }
 
     // Se dispara cuando una bala toca el objetivo (y este no es invulnerable). Es
-    // opcional: si el objetivo tiene Health, el pool ya llama a kill() por su cuenta.
     std::function<void()> onHit;
 
     // --- Uso -----------------------------------------------------------------
-    // Toma una bala libre y la activa. Devuelve nullptr si el pool esta lleno.
     Bullet* spawn(float x, float y, float vx, float vy,
                   float radius, float life = 0.0f, int type = 0);
 

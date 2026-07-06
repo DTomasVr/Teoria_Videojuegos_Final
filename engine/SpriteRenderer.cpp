@@ -80,7 +80,6 @@ void SpriteRenderer::render() {
     SDL_SetTextureBlendMode(texture, toSDLBlend(blend));
 
     // center = nullptr => SDL rota alrededor del centro del dst, que ahora es el
-    // centro real del sprite. Asi la rotacion tambien queda bien anclada.
     SDL_RenderTextureRotated(renderer, texture, srcPtr, &dst,
         t->rotation, nullptr, flip);
 

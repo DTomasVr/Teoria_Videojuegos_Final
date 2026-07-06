@@ -32,10 +32,7 @@
 #include "../engine/Debugger.h"
 #include "../engine/Audio.h"
 
-// ============================================================================
-//  "REDACTED" - Jefe HERCULES-1 (GDD 7). Escena de prueba (tecla 4).
-//  PARAMETROS ajustables:
-// ============================================================================
+//  "REDACTED" - Jefe HERCULES-1. Escena de prueba (tecla 4).
 namespace {
     constexpr float ROOM_W = 900.0f, ROOM_H = 700.0f, WALL = 40.0f;
     constexpr float HALF_W = ROOM_W * 0.5f, HALF_H = ROOM_H * 0.5f;
@@ -43,7 +40,7 @@ namespace {
     // Jugador.
     constexpr float PLAYER_SPEED   = 260.0f;
     constexpr float HURTBOX_RADIUS = 8.0f;
-    constexpr float BODY_SIZE      = 44.0f;
+    constexpr float BODY_W = 26.0f, BODY_H = 54.0f; // hitbox fisica: cabeza estrecha, cuerpo alto
     constexpr float PLAYER_SCALE   = 0.25f; // celda 256px -> ~64px en el mundo
     constexpr float DASH_SPEED    = 900.0f, DASH_DURATION = 0.12f;
     constexpr float DASH_IFRAMES  = 0.12f,  DASH_COOLDOWN = 0.5f;
@@ -52,30 +49,26 @@ namespace {
     constexpr float BOSS_BULLET_SPEED = 200.0f;
     constexpr float BULLET_RADIUS = 8.0f, BULLET_LIFE = 6.0f;
 
-    // Chasis + 4 brazos (GDD 7.1/7.3). El cuerpo es solido (~3 tiles) y ocupa el
-    // centro; los brazos orbitan y SON LETALES por contacto ("principal amenaza movil").
+    // Chasis + 4 brazos. El cuerpo es solido (~3 tiles) y ocupa el
     constexpr int   ARM_COUNT   = 4;
-    constexpr float ARM_OFFSET  = 120.0f;
-    constexpr float ARM_TIP     = 55.0f;   // punta del brazo
+    constexpr float ARM_OFFSET  = 118.0f;  // centro del brazo (sprites recortados y centrados)
+    constexpr float ARM_TIP     = 90.0f;   // muzzle/salida de bala = punta del cañon del arma (~208 del core)
     constexpr float ARM_HIT     = 30.0f;   // radio letal del brazo
     constexpr float CORE_BODY   = 92.0f;   // lado del collider solido del chasis
-    constexpr float ARM_SCALE    = 0.13f;  // el arte del brazo crecio ~1.7x: baja la escala
-    constexpr float WEAPON_R     = 178.0f; // radio del arma montada (cerca de la punta del brazo)
-    constexpr float WEAPON_SCALE = 0.17f;  // tamaño del arma en la punta
+    constexpr float ARM_SCALE    = 0.22f;  // brazo recortado (614px) -> ~135px, mitad 68 (tip ~186)
+    constexpr float WEAPON_R     = 172.0f; // arma en la punta del brazo
+    constexpr float WEAPON_SCALE = 0.22f;  // arma acorde al brazo; su cañon llega a ~208
 
     // Bloques que caen (Fase 2): mas pequeños para que no atasquen la sala, y con
-    // reglas de sitio (no sobre la maquina central ni sobre otro bloque).
     constexpr float BLOCK_MIN = 48.0f, BLOCK_MAX = 72.0f;
     constexpr float BLOCK_CORE_CLEAR = 155.0f; // radio libre alrededor del chasis
 
     // Rotacion segun calor: mas rapida cuanto mas calor. A partir del 30% de calor
-    // el sentido de giro ademas ALTERNA (ver REVERSE_PERIOD abajo).
     constexpr float SPIN_LOW = 28.0f, SPIN_MID = 46.0f, SPIN_HIGH = 68.0f;
     constexpr float SPIN_P2  = 18.0f;
     constexpr float HEAT_MID = 20.0f, HEAT_FAST = 55.0f; // tramos de velocidad
     constexpr float HEAT_REVERSE = 15.0f;                // desde aqui alterna el giro
     // Desde el 30% de calor el sentido de giro ALTERNA cada REVERSE_PERIOD seg
-    // (horario -> antihorario -> horario ...): oscilacion constante, dificil de leer.
     constexpr float REVERSE_PERIOD = 4.5f;
 
     // Armas de Fase 1 (los brazos SIEMPRE disparan, sin pausas).
@@ -84,50 +77,40 @@ namespace {
     constexpr float HMG_SPREAD = 0.22f;
 
     // Peligros de Fase 2: aparecen ALEATORIAMENTE por todo el mapa (los patrones del
-    // GDD son referenciales para el TAMANO). La cadencia se acelera con el calor, asi
-    // el suelo se va cubriendo (GDD 7.5: ~60% cubierto a ~90% de calor).
     constexpr float FLAME_RADIUS = 60.0f, FLAME_LIFE = 4.0f, FLAME_WARN = 0.6f;
     constexpr float FLAME_HIT = 38.0f; // radio LETAL < visual (la llama se dibuja cargada a la izq): mas indulgente
     constexpr float FLAME_INT_MAX = 0.55f, FLAME_INT_MIN = 0.20f; // seg entre parches
     constexpr float MINE_RADIUS = 72.0f;                         // radio del estallido
     constexpr float MINE_INT_MAX = 1.3f,  MINE_INT_MIN = 0.45f;   // seg entre minas (MAS bombas)
 
-    // Placas de presion: solo suben el calor (ya no pausan los brazos). Menos calor
-    // por pulso + mas cooldown = la Fase 1 sube el calor mas despacio y dura mas.
-    constexpr float PLATE_HEAT = 4.0f, PLATE_COOLDOWN = 1.8f;
+    // Sobrecalentamiento Fase 1: 20% natural (pasivo) + 80% placas (4 x 20%).
+    // Cada placa sube su progreso mientras el jugador la MANTIENE pisada; la Fase 2 se
+    // abre solo cuando las 4 estan cerradas al 100% y el calor natural llego al 20%.
+    constexpr float NATURAL_MAX = 20.0f, NATURAL_RATE = 1.0f;  // calor pasivo (20 en ~20 s)
+    constexpr float PLATE_MAX = 20.0f, PLATE_FILL_RATE = 6.0f; // por placa: 20 en ~3.3 s pisada
 
     // Fases.
-    constexpr float PHASE1_TIME   = 90.0f;   // limite de Fase 1 (tambien HUD)
-    constexpr float PHASE1_TARGET = 64.0f;   // calor que cierra la Fase 1
-    constexpr float TRANSITION_TIME = 3.0f;  // silencio entre fases (GDD 7.5)
-    constexpr float PASSIVE_HEAT  = 0.42f;   // calor/seg pasivo en Fase 2 (mas lento aun: ~85 s a 100%)
-    constexpr float PASSIVE_P1    = 0.5f;    // calor/seg pasivo en Fase 1 (MUCHO mas lento que una placa)
+    constexpr float PHASE1_TIME   = 90.0f;   // backstop de Fase 1 (fuerza transicion si te demoras)
+    constexpr float TRANSITION_TIME = 3.0f;  // silencio entre fases
+    constexpr float FASE2_DURATION = 55.0f;  // Fase 2: sobrevive mientras el suelo se cubre -> victoria
     constexpr float WIN_TIME = 1.3f;
     constexpr float TITLE_TIME = 3.2f, TITLE_FADE = 1.2f; // rotulo central que se desvanece
 
     constexpr float PI = 3.14159265f;
 
     // Region de SUELO dentro de map.jpeg (1024x1024): recorta el marco/paredes pintados
-    // para que el area jugable sea SOLO suelo. Los bloques que caen se recortan de aqui.
     constexpr float MAP_FX0 = 150.0f, MAP_FY0 = 145.0f, MAP_FX1 = 885.0f, MAP_FY1 = 880.0f;
 
     float frand(float a, float b) { return a + (b - a) * ((float)std::rand() / (float)RAND_MAX); }
     // Margen pequeño: los peligros de Fase 2 deben poder aparecer en los BORDES y
-    // ESQUINAS (antes 60px hacia dentro dejaba las esquinas siempre a salvo y el jugador
-    // se acampaba ahi). 18px < medio cuerpo del clon, asi que cubren donde puede pararse.
     float randX() { return frand(-HALF_W + 18.0f, HALF_W - 18.0f); }
     float randY() { return frand(-HALF_H + 18.0f, HALF_H - 18.0f); }
 }
 
 // Componentes locales de esta escena. Namespace anonimo (enlace interno) para no
-// chocar con clases del mismo nombre en otras escenas (p.ej. RoomRenderer en Sector1.cpp).
 namespace {
 
 // Configura el sprite ANIMADO del clon. Hojas 4x4 (fila = direccion, columnas = frames):
-// idle.png 992x1024 (celda 248x256), run.png y run_diag.png 1008x1008 (celda 252x252).
-// Las hojas -sheet_render corregidas ya NO tienen el swap up/down de antes: las tres
-// comparten filas 0=abajo, 1=arriba, 2=derecha, 3=izquierda (run_diag: 0=arriba-derecha,
-// 1=arriba-izquierda, 2=abajo-derecha, 3=abajo-izquierda).
 inline void setupPlayerAnim(GameObject* player) {
     player->transform->scaleX = player->transform->scaleY = PLAYER_SCALE;
     player->addComponent<SpriteRenderer>(); // sin textura: la pone el animator
@@ -140,8 +123,8 @@ inline void setupPlayerAnim(GameObject* player) {
     anim->addRowAnimation("idle_up",    IDLE, 248, 256, 1, IDLE_FPS);
     anim->addRowAnimation("idle_right", IDLE, 248, 256, 2, IDLE_FPS);
     anim->addRowAnimation("idle_left",  IDLE, 248, 256, 3, IDLE_FPS);
-    anim->addRowAnimation("run_down",  RUN, 252, 252, 0, RUN_FPS);
-    anim->addRowAnimation("run_up",    RUN, 252, 252, 1, RUN_FPS);
+    anim->addRowAnimation("run_up",    RUN, 252, 252, 0, RUN_FPS); // fila 0 = ARRIBA (norte)
+    anim->addRowAnimation("run_down",  RUN, 252, 252, 1, RUN_FPS); // fila 1 = ABAJO (sur)
     anim->addRowAnimation("run_right", RUN, 252, 252, 2, RUN_FPS);
     anim->addRowAnimation("run_left",  RUN, 252, 252, 3, RUN_FPS);
     anim->addRowAnimation("run_up_right",   DIAG, 252, 252, 0, RUN_FPS);
@@ -152,7 +135,6 @@ inline void setupPlayerAnim(GameObject* player) {
 }
 
 // Explosion de un solo uso: hoja de 6 frames que se reproduce y el objeto se
-// autodestruye (Lifetime). worldSize = diametro deseado en el mundo.
 inline void spawnExplosion(Scene& scene, float x, float y, float worldSize) {
     GameObject* e = scene.createGameObject("Explosion");
     e->transform->x = x; e->transform->y = y;
@@ -178,7 +160,6 @@ inline void drawWorldTex(Scene& scene, SDL_Texture* t, float wx, float wy, float
 }
 
 // Dibuja un FRAME (recorte opcional) de una textura en el mundo, con tamaño de mundo
-// explicito + rotacion + tinte + alpha. Lo usan fuego, destellos y placas.
 inline void drawWorldFrame(Scene& scene, SDL_Texture* t, float wx, float wy,
                            float worldW, float worldH, const SDL_FRect* src,
                            float rotDeg, int r, int g, int b, int a) {
@@ -197,7 +178,6 @@ inline void drawWorldFrame(Scene& scene, SDL_Texture* t, float wx, float wy,
 }
 
 // Destello de disparo: reproduce fx/muzzle.png (3 frames de 670px) UNA vez, orientado
-// hacia el disparo, y se autodestruye. Componente propio porque el SpriteRenderer no rota.
 constexpr int   MUZZLE_FRAMES = 3;
 constexpr float MUZZLE_FPS = 26.0f, MUZZLE_SIZE = 46.0f;
 
@@ -224,9 +204,7 @@ inline void spawnMuzzle(Scene& scene, float x, float y, float rotDeg) {
     g->addComponent<Lifetime>()->seconds = (float)MUZZLE_FRAMES / MUZZLE_FPS + 0.02f;
 }
 
-// ----------------------------------------------------------------------------
 //  Suelo y contorno de la arena.
-// ----------------------------------------------------------------------------
 class RoomRenderer : public Component {
 public:
     void awake() override { mapTex = gameObject->scene->getAssets().loadTexture("assets/redacted/map.jpeg"); }
@@ -247,18 +225,14 @@ private:
     SDL_Texture* mapTex = nullptr;
 };
 
-// ----------------------------------------------------------------------------
 //  Rotacion continua del chasis (BossRoom fija degPerSec, con signo para invertir).
-// ----------------------------------------------------------------------------
 class Spin : public Component {
 public:
     float degPerSec = 0.0f;
     void update(float dt) override { gameObject->transform->rotation += degPerSec * dt; }
 };
 
-// ----------------------------------------------------------------------------
 //  Jugador: movimiento 8-dir + Dash con i-frames + tinte de invulnerabilidad.
-// ----------------------------------------------------------------------------
 class BulletHellController : public Component {
 public:
     void update(float dt) override {
@@ -293,7 +267,6 @@ public:
         if (cooldownTimer > 0.0f) cooldownTimer -= dt;
 
         // Animacion: correr tiene 8 direcciones (ortogonales + diagonales); en reposo
-        // solo 4 (la hoja idle no trae diagonales) -> se usa el eje cardinal dominante.
         if (len > 0.0f) {
             const bool L = ix < -0.01f, R = ix > 0.01f, U = iy < -0.01f, D = iy > 0.01f;
             if      (U && R) runDir = "up_right";
@@ -325,12 +298,7 @@ private:
     std::string runDir = "down", idleDir = "down";
 };
 
-// ----------------------------------------------------------------------------
-//  Campo de parches de fuego (Fase 2, GDD 7.5). Aparecen en posiciones ALEATORIAS
-//  del mapa a una cadencia que se acelera con el calor (intensity). Cada parche
-//  primero TELEGRAFIA (no letal) y luego arde: letal por contacto, persiste y deja
-//  una quemadura permanente (decal). La cobertura se acumula, nunca se limpia.
-// ----------------------------------------------------------------------------
+//  Campo de parches de fuego (Fase 2,   7.5). Aparecen en posiciones ALEATORIAS
 class FlamePatchField : public Component {
 public:
     CircleCollider* target = nullptr;
@@ -380,6 +348,7 @@ public:
                 int f = (int)(animClock * 10.0f + p.x * 0.02f); f = ((f % 4) + 4) % 4;
                 SDL_FRect src{ (float)f * 817.0f, 0.0f, 817.0f, 544.0f };
                 drawWorldFrame(s, fireTex, p.x, p.y, fw, fh, &src, 0.0f, 255, 255, 255, a);
+                Debug::drawCircle(s, p.x, p.y, FLAME_HIT); // hitbox real (solo en debug)
             }
         }
     }
@@ -405,11 +374,7 @@ private:
     }
 };
 
-// ----------------------------------------------------------------------------
-//  Campo de minas (Fase 2, GDD 7.5). Cada mina CAE del techo en una posicion
-//  aleatoria (sombra que crece de aviso), estalla al aterrizar (letal en el radio)
-//  y desaparece dejando una quemadura NEGRA. La cadencia se acelera con el calor.
-// ----------------------------------------------------------------------------
+//  Campo de minas (Fase 2,   7.5). Cada mina CAE del techo en una posicion
 class MineField : public Component {
 public:
     CircleCollider* target = nullptr;
@@ -439,6 +404,7 @@ public:
             Shapes::fillCircle(s, m.x, m.y, MINE_RADIUS * (0.35f + 0.65f * frac), 0, 0, 0, 130);
             float topY = -HALF_H, cy = topY + (m.y - topY) * frac;
             drawWorldTex(s, mineTex, m.x, cy, 0.14f, 0.0f); // sprite de la mina cayendo
+            Debug::drawCircle(s, m.x, m.y, MINE_RADIUS); // zona del estallido (solo en debug)
         }
     }
 private:
@@ -467,11 +433,7 @@ private:
     }
 };
 
-// ----------------------------------------------------------------------------
 //  Brazo del jefe. Fase 1: minigun (par A) o HMG (par B), disparo RADIAL hacia
-//  afuera (la rotacion dibuja la espiral). El brazo ademas es SOLIDO/LETAL por
-//  contacto en ambas fases ("principal amenaza movil"). Una placa puede pausarlo.
-// ----------------------------------------------------------------------------
 enum class Weapon { Minigun, HMG };
 
 class BossArm : public Component {
@@ -485,9 +447,12 @@ public:
     Weapon weapon = Weapon::Minigun; // lo fija BossRoom
     bool   firing = false;           // solo dispara balas en Fase 1
 
+    void render() override { // debug (F1): radio letal de contacto del brazo
+        Debug::drawCircle(*gameObject->scene, gameObject->transform->x, gameObject->transform->y, ARM_HIT);
+    }
+
     void update(float dt) override {
         // Letalidad de contacto: el brazo es un boom solido, letal SIEMPRE (tambien
-        // retraido). Se salta si el jugador es invulnerable (Dash).
         if (target && hp && !hp->isInvulnerable() &&
             Collision::pointInCircle(target->centerX(), target->centerY(),
                                      gameObject->transform->x, gameObject->transform->y,
@@ -530,10 +495,7 @@ private:
     }
 };
 
-// ----------------------------------------------------------------------------
 //  Bloque de techo caido: obstaculo SOLIDO permanente. Lo crea FallingBlocks al
-//  aterrizar; su collider bloquea el paso.
-// ----------------------------------------------------------------------------
 class SolidBlock : public Component {
 public:
     float size = 80.0f;
@@ -548,12 +510,7 @@ private:
     SDL_Texture* blockTex = nullptr;
 };
 
-// ----------------------------------------------------------------------------
 //  Bloques de techo que CAEN (Fase 2): por la disfuncion del area, cada cierto
-//  tiempo cae un bloque en posicion aleatoria. Primero una sombra que crece (aviso);
-//  si el jugador esta debajo al aterrizar, muere. El bloque QUEDA como obstaculo
-//  solido que bloquea el paso el resto de la fase.
-// ----------------------------------------------------------------------------
 class FallingBlocks : public Component {
 public:
     CircleCollider* target = nullptr;
@@ -597,7 +554,6 @@ private:
     bool active = false; float spawnTimer = 0.0f;
 
     // Sitio libre = no cae sobre la maquina central ni solapa un bloque ya aterrizado
-    // o uno que ya esta cayendo.
     bool freeSpot(float x, float y, float size) const {
         if (std::sqrt(x * x + y * y) < BLOCK_CORE_CLEAR + size * 0.5f) return false;
         const float gap = 8.0f;
@@ -639,9 +595,7 @@ private:
     }
 };
 
-// ----------------------------------------------------------------------------
-//  Controlador del jefe HERCULES-1 de DOS FASES + HUD (GDD 7).
-// ----------------------------------------------------------------------------
+//  Controlador del jefe HERCULES-1 de DOS FASES + HUD.
 enum class BossPhase { Supresion, Transicion, Erradicacion, Ganado };
 
 class BossRoom : public Component {
@@ -659,22 +613,30 @@ public:
     MineField*    mines = nullptr;
     FallingBlocks* blocks = nullptr;
     ParticleSystem* steam = nullptr;
+    ParticleSystem* gore  = nullptr; // gore vivo (se limpia al reintentar)
     std::vector<BossArm*> arms;
     float startX = 0.0f, startY = 0.0f;
 
-    float heat = 0.0f;
+    float heat = 0.0f;                 // = naturalHeat + suma de placas (0..100)
+    float naturalHeat = 0.0f;          // calor pasivo de Fase 1 (0..NATURAL_MAX)
+    float plateProgress[4] = { 0, 0, 0, 0 }; // progreso de cada placa (0..PLATE_MAX)
     BossPhase phase = BossPhase::Supresion;
 
     bool  platesLocked() const { return phase != BossPhase::Supresion; }
     bool  winning()      const { return phase == BossPhase::Ganado; }
     float shockRadius()  const { return shockR; }
 
-    void onPlateActivated(float, float) {
-        if (phase != BossPhase::Supresion) return;
-        heat += PLATE_HEAT;
-        if (heat >= PHASE1_TARGET) { heat = PHASE1_TARGET; enterTransition(); }
+    // Placas: el jugador las MANTIENE pisadas para subir su progreso (Fase 1).
+    void addPlateProgress(int i, float dt) {
+        if (phase != BossPhase::Supresion || i < 0 || i > 3) return;
+        plateProgress[i] += PLATE_FILL_RATE * dt;
+        if (plateProgress[i] > PLATE_MAX) plateProgress[i] = PLATE_MAX;
     }
-    void onPhase1TimerEnd() { enterTransition(); }
+    bool  isPlateClosed(int i) const { return i >= 0 && i < 4 && plateProgress[i] >= PLATE_MAX; }
+    float plateFrac(int i) const { return (i >= 0 && i < 4) ? plateProgress[i] / PLATE_MAX : 0.0f; }
+    bool  allPlatesClosed() const { return isPlateClosed(0) && isPlateClosed(1) && isPlateClosed(2) && isPlateClosed(3); }
+
+    void onPhase1TimerEnd() { enterTransition(); } // backstop del temporizador
     void onPlayerDeath()    { if (fade) fade->blink(0.15f, 0.35f); resetProgress(false); } // parpadeo al reaparecer
 
     // Primera linea de NEXUS-9 + rotulo del jefe (tras cablear el HUD, no en awake()).
@@ -693,20 +655,23 @@ public:
         }
 
         switch (phase) {
-            case BossPhase::Supresion: // el sistema se calienta solo, lento (las placas suben mucho mas)
-                heat += PASSIVE_P1 * dt;
-                if (heat >= PHASE1_TARGET) { heat = PHASE1_TARGET; enterTransition(); }
+            case BossPhase::Supresion: { // 20% natural + 80% placas; abre al cerrar las 4 y llenar el natural
+                naturalHeat += NATURAL_RATE * dt; if (naturalHeat > NATURAL_MAX) naturalHeat = NATURAL_MAX;
+                heat = naturalHeat + plateProgress[0] + plateProgress[1] + plateProgress[2] + plateProgress[3];
                 emitSteam(dt);
+                if (allPlatesClosed() && naturalHeat >= NATURAL_MAX) enterTransition();
                 break;
+            }
             case BossPhase::Transicion:
                 transTimer -= dt; if (transTimer <= 0.0f) enterPhase2(); break;
             case BossPhase::Erradicacion: {
-                heat += PASSIVE_HEAT * dt; emitSteam(dt);
-                float inten = (heat - PHASE1_TARGET) / (100.0f - PHASE1_TARGET);
+                heat = 100.0f; // sobrecalentado: sobrevivir mientras el suelo se cubre
+                fase2Timer += dt; emitSteam(dt);
+                float inten = fase2Timer / FASE2_DURATION;
                 if (inten < 0.0f) inten = 0.0f; if (inten > 1.0f) inten = 1.0f;
-                if (flames) flames->intensity = inten; // el suelo se cubre mas con el calor
+                if (flames) flames->intensity = inten; // el suelo se cubre mas con el tiempo
                 if (mines)  mines->intensity = inten;
-                if (heat >= 100.0f) { heat = 100.0f; win(); }
+                if (fase2Timer >= FASE2_DURATION) win();
                 break;
             }
             case BossPhase::Ganado:
@@ -717,7 +682,7 @@ public:
     }
 
 private:
-    float transTimer = 0.0f, winTimer = 0.0f, shockR = 0.0f;
+    float transTimer = 0.0f, winTimer = 0.0f, shockR = 0.0f, fase2Timer = 0.0f;
     float reverseClock = 0.0f, steamAcc = 0.0f, nexusTimer = 0.0f, titleTimer = 0.0f;
     int   spinDir = 1;
 
@@ -730,7 +695,6 @@ private:
         else {
             speed = (heat < HEAT_MID) ? SPIN_LOW : (heat < HEAT_FAST) ? SPIN_MID : SPIN_HIGH;
             // Desde el 30% de calor, el sentido de giro se invierte cada REVERSE_PERIOD
-            // seg y se queda: horario un rato, antihorario un rato, y asi sin parar.
             if (heat >= HEAT_REVERSE) {
                 reverseClock += dt;
                 if (reverseClock >= REVERSE_PERIOD) { reverseClock -= REVERSE_PERIOD; spinDir = -spinDir; }
@@ -761,6 +725,14 @@ private:
     void enterTransition() {
         if (phase != BossPhase::Supresion) return;
         phase = BossPhase::Transicion; transTimer = TRANSITION_TIME;
+        // Las placas pasan a ser LETALES ya mismo: aparta al jugador de la esquina hacia
+        // el centro y dale inmunidad durante la transicion, para que no muera al instante
+        // sobre la placa que acaba de cerrar (la cinematica tapa este reposicionamiento).
+        if (player) {
+            player->transform->x *= 0.55f; player->transform->y *= 0.55f;
+            if (auto rb = player->getComponent<RigidBody2D>()) { rb->velocityX = 0.0f; rb->velocityY = 0.0f; }
+        }
+        if (hp) hp->setInvulnerable(TRANSITION_TIME + 0.6f);
         showTitle("ERRADICACION");
         setNexus("MATRIZ SIGMA. ERRADICACION");
         if (pool) pool->clear();
@@ -781,10 +753,13 @@ private:
     }
 
     void resetProgress(bool withFade) {
-        heat = 0.0f; phase = BossPhase::Supresion;
-        transTimer = 0.0f; winTimer = 0.0f; shockR = 0.0f;
+        heat = 0.0f; naturalHeat = 0.0f; for (float& p : plateProgress) p = 0.0f;
+        phase = BossPhase::Supresion;
+        transTimer = 0.0f; winTimer = 0.0f; shockR = 0.0f; fase2Timer = 0.0f;
         reverseClock = 0.0f; spinDir = 1;
         if (timer) timer->reset();
+        if (steam) steam->clear();       // limpia vapor y gore vivos del intento anterior
+        if (gore)  gore->clear();
         if (flames) { flames->reset(); flames->intensity = 0.0f; }
         if (mines)  { mines->reset();  mines->intensity = 0.0f; }
         if (blocks) blocks->reset();
@@ -809,9 +784,7 @@ private:
     }
 };
 
-// ----------------------------------------------------------------------------
-//  Onda de choque de victoria (GDD 7.7): anillo no letal que se expande.
-// ----------------------------------------------------------------------------
+//  Onda de choque de victoria: anillo no letal que se expande.
 class ShockwaveView : public Component {
 public:
     BossRoom* boss = nullptr;
@@ -823,11 +796,7 @@ public:
     }
 };
 
-// ----------------------------------------------------------------------------
-//  Barra de CALOR (GDD 7: el jefe no tiene HP, tiene un medidor de calor). Reutiliza
-//  el arte boos health bar: marco metalico + relleno naranja que crece con el calor
-//  (0..100) y vira a rojo. Se dibuja en espacio de PANTALLA, arriba y centrado.
-// ----------------------------------------------------------------------------
+//  Barra de CALOR (el jefe no tiene HP, tiene un medidor de calor). Reutiliza
 class HeatBar : public Component {
 public:
     BossRoom* boss = nullptr;
@@ -843,13 +812,11 @@ public:
         float cx = ow * 0.5f, cy = oh * 0.03f + fh * 0.5f;  // arriba, centrado
         float frac = boss->heat / 100.0f; if (frac < 0.0f) frac = 0.0f; if (frac > 1.0f) frac = 1.0f;
         // El MARCO va primero: su cavidad (pantalla oscura) es OPACA, asi que si fuese
-        // encima taparia el relleno por completo (por eso antes no se veia llenar).
         if (frameTex) {
             SDL_FRect dst{ cx - fw * 0.5f, cy - fh * 0.5f, fw, fh };
             SDL_RenderTexture(r, frameTex, nullptr, &dst);
         }
         // Relleno naranja->rojo ENCIMA, recortado a la fraccion de calor (izq->der): la
-        // parte visible del sprite crece con el calor tanto en el recorte como en el dst.
         if (fillTex && frac > 0.0f) {
             float fillW = fw * (876.0f / 958.0f), fillH = fh * (106.0f / 179.0f);
             float leftX = cx - fillW * 0.5f;
@@ -865,13 +832,11 @@ private:
     SDL_Texture* frameTex = nullptr; SDL_Texture* fillTex = nullptr;
 };
 
-// ----------------------------------------------------------------------------
 //  Placa de presion: en Fase 1 suma calor a pulsos al pisarla. En Fase 2 las placas
-//  quedan RECALENTADAS: pisarlas es LETAL (se tiñen de rojo incandescente).
-// ----------------------------------------------------------------------------
 class PressurePlate : public Component {
 public:
     BossRoom* state = nullptr;
+    int   index = 0;              // cual de las 4 placas (0..3)
     float w = 80.0f, h = 80.0f;
 
     void awake() override {
@@ -889,40 +854,34 @@ public:
     }
     void update(float dt) override {
         animT += dt;
-        bool locked = state ? state->platesLocked() : false;
-        if (cooldown > 0.0f) cooldown -= dt;
-        if (contact && !locked && cooldown <= 0.0f && state) {
-            state->onPlateActivated(gameObject->transform->x, gameObject->transform->y);
-            cooldown = PLATE_COOLDOWN; flash = 1.0f;
-        }
-        active = contact && !locked;
-        if (flash > 0.0f) flash -= dt * 3.0f;
+        bool lethal = state ? state->platesLocked() : false;
+        bool closed = state ? state->isPlateClosed(index) : false;
+        pressed = contact && !lethal && !closed;
+        if (pressed && state) state->addPlateProgress(index, dt); // sube mientras se mantenga pisada
         contact = false;
     }
     void render() override {
         Scene& s = *gameObject->scene;
         float x = gameObject->transform->x, y = gameObject->transform->y;
-        bool locked = state ? state->platesLocked() : false;
-        if (locked) { // RECALENTADA: placa activa teñida de rojo incandescente pulsante = peligro
+        bool lethal = state ? state->platesLocked() : false;
+        bool closed = state ? state->isPlateClosed(index) : false;
+        if (lethal) { // Fase 2: placa activa teñida de rojo incandescente = peligro
             float pulse = 0.5f + 0.5f * std::sin(animT * 6.0f);
             drawWorldFrame(s, activeTex, x, y, w, h, nullptr, 0.0f, 255, (int)(55 + 45 * pulse), 35, 235);
-        } else if (active) { // pisada en Fase 1: placa activa, ambar brillante
-            int g = 205 + (int)(35 * flash); if (g > 255) g = 255;
-            drawWorldFrame(s, activeTex, x, y, w, h, nullptr, 0.0f, 255, g, 120, 255);
-        } else {             // en reposo: tapa cerrada
-            drawWorldFrame(s, closedTex, x, y, w, h, nullptr, 0.0f, 255, 255, 255, 235);
+        } else if (closed) { // cerrada al 100%: tapa encima
+            drawWorldFrame(s, closedTex, x, y, w, h, nullptr, 0.0f, 255, 255, 255, 245);
+        } else { // interactiva: se ilumina segun el progreso (verde/ambar), brillante al pisarla
+            float frac = state ? state->plateFrac(index) : 0.0f;
+            int g = 110 + (int)(110 * frac); if (pressed) g = 255; if (g > 255) g = 255;
+            drawWorldFrame(s, activeTex, x, y, w, h, nullptr, 0.0f, 255, g, 90, 255);
         }
     }
 private:
     SDL_Texture* activeTex = nullptr; SDL_Texture* closedTex = nullptr;
-    bool contact = false, active = false; float cooldown = 0.0f, flash = 0.0f, animT = 0.0f;
+    bool contact = false, pressed = false; float animT = 0.0f;
 };
 
-// ----------------------------------------------------------------------------
-//  Cartel de transicion a Fase 2 (GDD 7.5): durante los ~3 s de TRANSICION del jefe
-//  cubre la pantalla con el fotograma boss_fase2 SIN cambiar de escena (conserva el
-//  calor, el progreso y los decals). Espacio de PANTALLA, sobre el gameplay y el HUD.
-// ----------------------------------------------------------------------------
+//  Cartel de transicion a Fase 2: durante los ~3 s de TRANSICION del jefe
 class BossFase2Card : public Component {
 public:
     BossRoom* boss = nullptr;
@@ -940,9 +899,7 @@ private:
 
 } // namespace (componentes locales)
 
-// ============================================================================
 //  Construccion de la escena
-// ============================================================================
 void buildBulletHell(Scene& scene) {
     Audio::load("death", "assets/audio/death.wav");
     Audio::load("dash",  "assets/audio/dash.wav");
@@ -972,16 +929,18 @@ void buildBulletHell(Scene& scene) {
     auto state = logicObj->addComponent<BossRoom>();
     Audio::playMusic("assets/audio/music_boss.ogg"); // tema del jefe HERCULES-1 (en bucle)
 
-    // 4 placas en las 4 esquinas (GDD 7.3), bajo el jugador.
+    // 4 placas en las 4 esquinas, bajo el jugador.
     const float pX = HALF_W - 100.0f, pY = HALF_H - 100.0f;
     const float platePos[4][2] = { { -pX, -pY }, { pX, -pY }, { -pX, pY }, { pX, pY } };
+    int plateIdx = 0;
     for (auto& pp : platePos) {
         GameObject* plate = scene.createGameObject("Plate");
         plate->tag = "plate";
         plate->transform->x = pp[0]; plate->transform->y = pp[1];
         auto bc = plate->addComponent<BoxCollider>();
         bc->width = 80.0f; bc->height = 80.0f; bc->isTrigger = true;
-        plate->addComponent<PressurePlate>()->state = state;
+        auto pc = plate->addComponent<PressurePlate>();
+        pc->state = state; pc->index = plateIdx++;
     }
 
     // Jugador.
@@ -990,7 +949,7 @@ void buildBulletHell(Scene& scene) {
     player->transform->x = 0.0f; player->transform->y = HALF_H - 170.0f;
     setupPlayerAnim(player); // clon animado (hojas idle/run direccionales)
     auto rb = player->addComponent<RigidBody2D>(); rb->gravityScale = 0.0f;
-    auto body = player->addComponent<BoxCollider>(); body->width = body->height = BODY_SIZE;
+    auto body = player->addComponent<BoxCollider>(); body->width = BODY_W; body->height = BODY_H;
     auto hurt = player->addComponent<CircleCollider>(); hurt->radius = HURTBOX_RADIUS;
     auto hp = player->addComponent<Health>();
     player->addComponent<BulletHellController>();
@@ -1042,8 +1001,6 @@ void buildBulletHell(Scene& scene) {
         arms.push_back(a);
 
         // Arma montada en la PUNTA del brazo: viaja y gira con el conjunto (ChildOf al
-        // core, mayor radio). El arte del arma apunta a +x, asi que localRotation=ang la
-        // orienta radialmente hacia AFUERA. pairA=minigun, pairB=lasergun.
         GameObject* wep = scene.createGameObject("ArmWeapon");
         wep->transform->scaleX = wep->transform->scaleY = WEAPON_SCALE;
         wep->addComponent<SpriteRenderer>((i % 2 == 0)
@@ -1095,8 +1052,7 @@ void buildBulletHell(Scene& scene) {
     nexusText->setColor(150, 200, 220);
     auto timerText = mkText("Timer", 250.0f, 6.0f); // solo visible en debug (F1)
 
-    // Barra de calor (reemplaza la barra de vida: el jefe se mide por calor, GDD 7).
-    // layer alto -> se dibuja sobre todo (incl. bloques que caen creados en runtime).
+    // Barra de calor (reemplaza la barra de vida: el jefe se mide por calor,).
     auto heatBarObj = scene.createGameObject("HeatBar");
     heatBarObj->layer = 100;
     heatBarObj->addComponent<HeatBar>()->boss = state;
@@ -1116,7 +1072,7 @@ void buildBulletHell(Scene& scene) {
     state->heatText = heatText; state->nexusText = nexusText; state->fade = fade;
     state->player = player; state->hp = hp; state->pool = pool; state->decals = decals;
     state->coreSpin = coreSpin; state->coreT = core->transform;
-    state->flames = flames; state->mines = mines; state->blocks = blocks; state->steam = steam; state->arms = arms;
+    state->flames = flames; state->mines = mines; state->blocks = blocks; state->steam = steam; state->gore = fx; state->arms = arms;
     state->startX = player->transform->x; state->startY = player->transform->y;
     state->introLine(); // muestra la primera linea de NEXUS-9
 

@@ -26,10 +26,7 @@ inline void drawFullscreen(Scene& scene, SDL_Texture* t) {
     SDL_RenderTexture(r, t, nullptr, &dst);
 }
 
-// ----------------------------------------------------------------------------
 //  Imagen fija en espacio de pantalla: fullscreen (fondo) o centrada por fraccion
-//  del tamano de salida (logo). Conserva la relacion de aspecto del sprite.
-// ----------------------------------------------------------------------------
 class ScreenImage : public Component {
 public:
     std::string path;
@@ -37,7 +34,6 @@ public:
     float cxFrac = 0.5f, cyFrac = 0.5f, wFrac = 0.4f; // solo si !fullscreen
 
     // Carga PEREZOSA: 'path' se asigna despues de addComponent (cuando ya corrio awake),
-    // asi que la textura se pide en el primer render, no en awake (evita loadTexture("")).
     void render() override {
         if (!tex && !path.empty()) tex = gameObject->scene->getAssets().loadTexture(path);
         if (!tex) return;
@@ -53,11 +49,7 @@ private:
     SDL_Texture* tex = nullptr;
 };
 
-// ----------------------------------------------------------------------------
 //  Boton de pantalla: dos texturas (normal / hundida). El "sensor" es su rectangulo
-//  en pantalla; al pasar el raton por encima se dibuja la version hundida, y al hacer
-//  clic (o pulsar su tecla) dispara la accion: >0 pide esa escena, -1 cierra el juego.
-// ----------------------------------------------------------------------------
 class ScreenButton : public Component {
 public:
     std::string normalPath, hoverPath;
@@ -115,12 +107,7 @@ private:
     }
 };
 
-// ----------------------------------------------------------------------------
 //  Cinematica de fotogramas estaticos: fondo a pantalla completa + lineas de texto.
-//  Se avanza con ESPACIO/ENTER; al pasar el ultimo fotograma pide la escena siguiente.
-//  El fondo lo dibuja este mismo componente; el texto son TextRenderer aparte que este
-//  controlador rellena por fotograma.
-// ----------------------------------------------------------------------------
 struct CineFrame { std::string img; std::vector<std::string> lines; };
 
 class CinematicCtrl : public Component {
@@ -197,9 +184,7 @@ void buildCinematic(Scene& scene, std::vector<CineFrame> frames, int nextScene) 
 
 } // namespace (componentes locales)
 
-// ============================================================================
 //  Menu principal
-// ============================================================================
 void buildMainMenu(Scene& scene) {
     Audio::playMusic("assets/audio/music_menu.ogg"); // musica del menu principal (en bucle)
 
@@ -235,9 +220,7 @@ void buildMainMenu(Scene& scene) {
     fade->addComponent<ScreenFade>()->fadeIn(0.5f);
 }
 
-// ============================================================================
 //  Cinematicas
-// ============================================================================
 void buildIntroCinematic(Scene& scene) {
     buildCinematic(scene, {
         { "assets/redacted/scenes/intro_01.jpg", {
@@ -259,17 +242,17 @@ void buildChamberCinematic(Scene& scene, int chamber) {
         buildCinematic(scene, {{ "assets/redacted/scenes/camara_01.jpg", {
             "SUBNIVEL 0   CAMARA 01: EL POZO",
             "PELIGRO: TORRETA MK-II   ZONAS DE NUKE",
-            "NEXUS-9: SUPRESION DE BAJA DENSIDAD. MUEVASE." }}}, 5);
+            "NEXUS-9: SUPRESION DE BAJA DENSIDAD. MUEVASE." }}}, 1);
     else if (chamber == 2)
         buildCinematic(scene, {{ "assets/redacted/scenes/camara_02.jpg", {
             "SUBNIVEL 0   CAMARA 02: LA TRINCHERA",
             "PELIGRO: LANZALLAMAS   MINAS",
-            "NEXUS-9: EVITE LA COBERTURA INMOVIL." }}}, 6);
+            "NEXUS-9: EVITE LA COBERTURA INMOVIL." }}}, 2);
     else
         buildCinematic(scene, {{ "assets/redacted/scenes/camara_03.jpg", {
             "SUBNIVEL 0   CAMARA 03: EL SUELO DE MATANZA",
             "PELIGRO: CONTINGENCIA SIGMA",
-            "NEXUS-9: TASA DE SUPERVIVENCIA MINIMA." }}}, 7);
+            "NEXUS-9: TASA DE SUPERVIVENCIA MINIMA." }}}, 3);
 }
 
 void buildBossCinematic(Scene& scene) {

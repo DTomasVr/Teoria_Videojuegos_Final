@@ -36,11 +36,8 @@
     <ClCompile Include="engine\TextRenderer.cpp" />
     <ClCompile Include="engine\TilemapRenderer.cpp" />
     <ClCompile Include="game\BulletHell.cpp" />
-    <ClCompile Include="game\Platformer.cpp" />
     <ClCompile Include="game\Sector1.cpp" />
     <ClCompile Include="game\Screens.cpp" />
-    <ClCompile Include="game\Shooter.cpp" />
-    <ClCompile Include="game\TopDown.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -72,12 +69,9 @@
     <ClInclude Include="engine\third_party\nlohmann\json.hpp" />
     <ClInclude Include="engine\Transform.h" />
     <ClInclude Include="game\BulletHell.h" />
-    <ClInclude Include="game\Platformer.h" />
     <ClInclude Include="game\SceneFlow.h" />
     <ClInclude Include="game\Screens.h" />
     <ClInclude Include="game\Sector1.h" />
-    <ClInclude Include="game\Shooter.h" />
-    <ClInclude Include="game\TopDown.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>

@@ -8,8 +8,6 @@
 #include <cctype>
 
 // --- Fuente 5x7 embebida ----------------------------------------------------
-// Cada glifo son 7 filas; en cada fila los 5 bits bajos son los pixeles
-// (bit 4 = columna izquierda). 1 = pixel encendido.
 namespace {
 struct Glyph { char c; unsigned char rows[7]; };
 

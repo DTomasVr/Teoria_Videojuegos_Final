@@ -2,7 +2,6 @@
 #include "Component.h"
 
 // Rectangulo de colision (AABB) anclado al centro del Transform.
-// El tamano va en unidades de mundo (no se escala solo con el Transform).
 
 class BoxCollider : public Component {
 public:

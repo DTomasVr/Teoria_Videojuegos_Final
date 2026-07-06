@@ -32,24 +32,21 @@
 #include "../engine/Debugger.h"
 #include "../engine/Audio.h"
 
-// ============================================================================
 //  Parametros comunes del Sector 1.
-// ============================================================================
 namespace {
     constexpr float ROOM_W = 880.0f, ROOM_H = 700.0f, WALL = 40.0f;
     constexpr float HALF_W = ROOM_W * 0.5f, HALF_H = ROOM_H * 0.5f;
 
     constexpr float PLAYER_SPEED   = 260.0f;
     constexpr float HURTBOX_RADIUS = 8.0f;
-    constexpr float BODY_SIZE      = 44.0f;
+    constexpr float BODY_W = 26.0f, BODY_H = 54.0f; // hitbox fisica: cabeza estrecha, cuerpo alto
     constexpr float PLAYER_SCALE   = 0.25f; // celda 256px -> ~64px en el mundo
     constexpr float DASH_SPEED    = 900.0f, DASH_DURATION = 0.12f;
     constexpr float DASH_IFRAMES  = 0.12f,  DASH_COOLDOWN = 0.5f;
 
     constexpr float BULLET_RADIUS = 8.0f, BULLET_LIFE = 6.0f;
 
-    // Torreta MK-II (GDD 4.2): angulo fijo, telegrafia con laser rojo, rafaga de
-    // balas lentas. La cadencia cambia por fase.
+    // Torreta MK-II: angulo fijo, telegrafia con laser rojo, rafaga de
     constexpr float TURRET_INT_P1 = 4.0f;   // Fase 1: 1 rafaga/4 s
     constexpr float TURRET_INT_P2 = 2.5f;   // Fase 2: 1 rafaga/2.5 s
     constexpr int   TURRET_BURST  = 4;
@@ -57,17 +54,16 @@ namespace {
     constexpr float TURRET_BSPEED = 175.0f; // balas lentas
     constexpr float TURRET_TELE   = 0.8f;   // seg de barrido laser previo
 
-    // Nuke (GDD 4.2): zona marcada, 2 s de aviso, detonacion letal, crater persistente.
+    // Nuke: zona marcada, 2 s de aviso, detonacion letal, crater persistente.
     constexpr float NUKE_RADIUS = 95.0f, NUKE_INTERVAL = 8.0f, NUKE_WARN = 2.0f;
 
-    // Lanzallamas + parches de fuego (GDD 4.2 / 6.2).
+    // Lanzallamas + parches de fuego.
     constexpr float FIRE_RADIUS = 48.0f, FIRE_LIFE = 3.0f;   // parche persiste 3 s
     constexpr float FIRE_HIT    = 30.0f; // radio LETAL < visual (la llama va cargada a la izq): mas indulgente
     constexpr float FLAME_RANGE = 300.0f, FLAME_CONE_HALF = 0.3927f; // cono de 45 grados
     constexpr float JET_TIME = 1.2f;        // duracion del chorro por ciclo
 
     // Minas: ya NO estaticas. Caen del techo (sombra que crece), explotan al aterrizar
-    // (letal en el radio) y desaparecen dejando una quemadura NEGRA en el suelo.
     constexpr float MINE_RADIUS = 70.0f;  // radio del estallido
     constexpr float MINE_DROP   = 1.1f;   // seg de caida (telegrafo con sombra)
     constexpr float MINE_GAP    = 2.0f;   // seg de espera entre caidas
@@ -81,25 +77,15 @@ namespace {
     constexpr float PI = 3.14159265f;
 
     // Region de SUELO dentro de map.jpeg (1024x1024): recorta el marco/paredes pintados
-    // para que el area jugable sea SOLO suelo (asi el jugador no pisa paredes y las
-    // placas no quedan medio sobre la pared). Tambien es de donde salen los escombros.
     constexpr float MAP_FX0 = 150.0f, MAP_FY0 = 145.0f, MAP_FX1 = 885.0f, MAP_FY1 = 880.0f;
 
     float frand(float a, float b) { return a + (b - a) * ((float)std::rand() / (float)RAND_MAX); }
 }
 
 // Componentes locales de esta escena. Van en un namespace anonimo (enlace interno)
-// para NO chocar con clases del mismo nombre en otras escenas (p.ej. RoomRenderer
-// tambien existe en BulletHell.cpp).
 namespace {
 
 // Configura el sprite ANIMADO del clon. Hojas 4x4 (fila = direccion, columnas = frames):
-//  - idle.png   992x1024, celda 248x256
-//  - run.png    1008x1008, celda 252x252 (ortogonales)
-//  - run_diag.png 1008x1008, celda 252x252 (diagonales)
-// Las hojas -sheet_render corregidas en Aseprite ya NO tienen el swap up/down de antes:
-// las tres comparten distribucion de filas 0=abajo, 1=arriba, 2=derecha, 3=izquierda
-// (en run_diag: 0=arriba-derecha, 1=arriba-izquierda, 2=abajo-derecha, 3=abajo-izquierda).
 inline void setupPlayerAnim(GameObject* player) {
     player->transform->scaleX = player->transform->scaleY = PLAYER_SCALE;
     player->addComponent<SpriteRenderer>(); // sin textura: la pone el animator
@@ -112,8 +98,8 @@ inline void setupPlayerAnim(GameObject* player) {
     anim->addRowAnimation("idle_up",    IDLE, 248, 256, 1, IDLE_FPS);
     anim->addRowAnimation("idle_right", IDLE, 248, 256, 2, IDLE_FPS);
     anim->addRowAnimation("idle_left",  IDLE, 248, 256, 3, IDLE_FPS);
-    anim->addRowAnimation("run_down",  RUN, 252, 252, 0, RUN_FPS);
-    anim->addRowAnimation("run_up",    RUN, 252, 252, 1, RUN_FPS);
+    anim->addRowAnimation("run_up",    RUN, 252, 252, 0, RUN_FPS); // fila 0 = ARRIBA (norte)
+    anim->addRowAnimation("run_down",  RUN, 252, 252, 1, RUN_FPS); // fila 1 = ABAJO (sur)
     anim->addRowAnimation("run_right", RUN, 252, 252, 2, RUN_FPS);
     anim->addRowAnimation("run_left",  RUN, 252, 252, 3, RUN_FPS);
     anim->addRowAnimation("run_up_right",   DIAG, 252, 252, 0, RUN_FPS);
@@ -123,11 +109,7 @@ inline void setupPlayerAnim(GameObject* player) {
     anim->play("idle_down");
 }
 
-// ----------------------------------------------------------------------------
 //  Montura de dos piezas: base ESTATICA + pieza superior que ROTA con el aim del
-//  objeto (transform->rotation). Sirve para torretas (base+cañon) y lanzallamas
-//  (base+boquilla). Dibuja en el mundo con la camara; sigue al objeto si se mueve.
-// ----------------------------------------------------------------------------
 class TwoPartMount : public Component {
 public:
     void setup(const char* basePath, const char* topPath, float baseScale, float topScale) {
@@ -159,9 +141,9 @@ private:
 inline void addTurretArt(GameObject* t, bool mk4) {
     auto art = t->addComponent<TwoPartMount>();
     // El cañon MK4 se rehizo mas largo (1071px de alto vs 676 antes): baja su escala
-    // (~0.12*676/1071) para conservar el largo en pantalla que ya estaba ajustado.
     if (mk4) art->setup("assets/redacted/turret/mk4_base.png", "assets/redacted/turret/mk4_cannon.png", 0.13f, 0.076f);
     else     art->setup("assets/redacted/turret/mk2_base.png", "assets/redacted/turret/mk2_cannon.png", 0.11f, 0.11f);
+    auto bc = t->addComponent<BoxCollider>(); bc->width = bc->height = 52.0f; // base solida (sin RigidBody = estatica)
 }
 
 inline void addFlamethrowerArt(GameObject* fl) {
@@ -183,8 +165,6 @@ inline void drawWorldTex(Scene& scene, SDL_Texture* t, float wx, float wy, float
 }
 
 // Dibuja un FRAME (recorte opcional) de una textura en el mundo, con tamaño de mundo
-// explicito + rotacion + tinte + alpha. Lo usan fuego, destellos y marcadores que
-// necesitan recortar una tira y/o modular alpha (drawWorldTex no lo permite).
 inline void drawWorldFrame(Scene& scene, SDL_Texture* t, float wx, float wy,
                            float worldW, float worldH, const SDL_FRect* src,
                            float rotDeg, int r, int g, int b, int a) {
@@ -203,8 +183,6 @@ inline void drawWorldFrame(Scene& scene, SDL_Texture* t, float wx, float wy,
 }
 
 // Destello de disparo: reproduce fx/muzzle.png (3 frames de 670px) UNA vez, orientado
-// hacia el disparo, y se autodestruye (Lifetime). Es un componente propio porque el
-// SpriteRenderer no rota.
 constexpr int   MUZZLE_FRAMES = 3;
 constexpr float MUZZLE_FPS = 26.0f, MUZZLE_SIZE = 46.0f;
 
@@ -232,7 +210,6 @@ inline void spawnMuzzle(Scene& scene, float x, float y, float rotDeg) {
 }
 
 // Explosion de un solo uso: hoja de 6 frames que se reproduce y el objeto se
-// autodestruye (Lifetime). worldSize = diametro deseado en el mundo.
 inline void spawnExplosion(Scene& scene, float x, float y, float worldSize) {
     GameObject* e = scene.createGameObject("Explosion");
     e->transform->x = x; e->transform->y = y;
@@ -244,9 +221,7 @@ inline void spawnExplosion(Scene& scene, float x, float y, float worldSize) {
     e->addComponent<Lifetime>()->seconds = 6.0f / 18.0f + 0.05f; // dura lo que la animacion
 }
 
-// ----------------------------------------------------------------------------
 //  Suelo y contorno de la sala (hormigon oscuro).
-// ----------------------------------------------------------------------------
 class RoomRenderer : public Component {
 public:
     void awake() override { mapTex = gameObject->scene->getAssets().loadTexture("assets/redacted/map.jpeg"); }
@@ -267,9 +242,7 @@ private:
     SDL_Texture* mapTex = nullptr;
 };
 
-// ----------------------------------------------------------------------------
 //  Jugador: movimiento 8-dir + Dash con i-frames + tinte de invulnerabilidad.
-// ----------------------------------------------------------------------------
 class PlayerShip : public Component {
 public:
     void update(float dt) override {
@@ -301,7 +274,6 @@ public:
         if (cd > 0.0f) cd -= dt;
 
         // Animacion: correr tiene 8 direcciones (ortogonales + diagonales); en reposo
-        // solo 4 (la hoja idle no trae diagonales) -> se usa el eje cardinal dominante.
         if (len > 0.0f) {
             const bool L = ix < -0.01f, R = ix > 0.01f, U = iy < -0.01f, D = iy > 0.01f;
             if      (U && R) runDir = "up_right";
@@ -334,10 +306,7 @@ private:
     std::string runDir = "down", idleDir = "down";
 };
 
-// ----------------------------------------------------------------------------
 //  Torreta MK-II: apunta en una direccion FIJA, avisa con un barrido laser rojo y
-//  dispara una rafaga de balas lentas. La cadencia la fija la fase de la camara.
-// ----------------------------------------------------------------------------
 class Turret : public Component {
 public:
     BulletPool* pool = nullptr;
@@ -347,10 +316,8 @@ public:
     int   burst    = TURRET_BURST;   // balas por rafaga (MK-IV = 5)
     float streamInterval = 0.0f;     // 0 = sin flujo continuo; >0 = una bala cada X seg
                                      // (el flujo NO se detiene aunque salga una rafaga)
-    // Riel horizontal (MK-IV, GDD 6.3): la torreta se desliza entre railMin/railMax.
     float railMin = 0.0f, railMax = 0.0f, railSpeed = 0.0f;
     // Barrido ACOTADO: oscila el angulo dentro de +-sweepRange alrededor de sweepBase.
-    // Para torretas de pared que barren su semiplano (180 grados) sin girar 360.
     float sweepBase = 0.0f, sweepRange = 0.0f, sweepSpeed = 0.0f;
 
     void setOffset(float t) { timer = t; }              // para escalonar N+W vs E
@@ -390,7 +357,6 @@ public:
     }
     void render() override {
         // Barrido laser rojo de trayectoria: solo en modo debug (F1). En juego normal no
-        // se muestra (las balas ya son visibles); ensuciaba la pantalla.
         float toFire = interval - timer;
         if (Debug::isEnabled() && toFire <= TURRET_TELE) {
             float ox = gameObject->transform->x, oy = gameObject->transform->y;
@@ -401,32 +367,28 @@ public:
     }
 private:
     float timer = 0.0f, angle = 0.0f, railDir = 1.0f, sweepPhase = 0.0f, streamTimer = 0.0f;
-    void fireOne() { // una sola bala en la direccion actual (flujo)
+    void fireOne() { // una sola bala desde la PUNTA del cañon (flujo)
         if (!pool) return;
-        float ox = gameObject->transform->x, oy = gameObject->transform->y;
+        float ox = gameObject->transform->x + aimX * 48.0f, oy = gameObject->transform->y + aimY * 48.0f; // punta del cañon
         float ang = std::atan2(aimY, aimX);
         pool->spawn(ox, oy, std::cos(ang) * TURRET_BSPEED, std::sin(ang) * TURRET_BSPEED,
                     BULLET_RADIUS, BULLET_LIFE);
-        spawnMuzzle(*gameObject->scene, ox + aimX * 48.0f, oy + aimY * 48.0f, ang * 180.0f / PI);
+        spawnMuzzle(*gameObject->scene, ox, oy, ang * 180.0f / PI);
     }
-    void fire() { // rafaga en abanico
+    void fire() { // rafaga en abanico desde la PUNTA del cañon
         if (!pool) return;
-        float ox = gameObject->transform->x, oy = gameObject->transform->y;
+        float ox = gameObject->transform->x + aimX * 48.0f, oy = gameObject->transform->y + aimY * 48.0f; // punta del cañon
         float base = std::atan2(aimY, aimX);
         for (int i = 0; i < burst; ++i) {
             float ang = base + (i - (burst - 1) * 0.5f) * TURRET_SPREAD;
             pool->spawn(ox, oy, std::cos(ang) * TURRET_BSPEED, std::sin(ang) * TURRET_BSPEED,
                         BULLET_RADIUS, BULLET_LIFE);
         }
-        spawnMuzzle(*gameObject->scene, ox + aimX * 48.0f, oy + aimY * 48.0f, base * 180.0f / PI);
+        spawnMuzzle(*gameObject->scene, ox, oy, base * 180.0f / PI);
     }
 };
 
-// ----------------------------------------------------------------------------
 //  Nuke (bomba de caida): zona fija marcada en el suelo. Inactiva hasta que se
-//  ARMA (Fase 2). Cuando esta armada cicla: aviso parpadeante (NUKE_WARN seg) ->
-//  detonacion letal dentro del radio + crater persistente + particulas -> espera.
-// ----------------------------------------------------------------------------
 class Nuke : public Component {
 public:
     CircleCollider* target = nullptr;
@@ -436,7 +398,10 @@ public:
     bool  armed = false;
     float interval = NUKE_INTERVAL; // cadencia (la Camara 03 la acelera por fase)
 
-    void awake() override { siteTex = gameObject->scene->getAssets().loadTexture("assets/redacted/hazard/nuke_site.png"); }
+    void awake() override {
+        siteTex    = gameObject->scene->getAssets().loadTexture("assets/redacted/hazard/nuke_site.png");
+        carcassTex = gameObject->scene->getAssets().loadTexture("assets/redacted/hazard/nuke_carcass.png"); // proyectil que cae
+    }
 
     void setOffset(float t) { offset = t; timer = t; }
     void disarm() { armed = false; timer = offset; flash = 0.0f; } // conserva el desfase al reintentar
@@ -450,18 +415,21 @@ public:
     void render() override {
         Scene& s = *gameObject->scene;
         float x = gameObject->transform->x, y = gameObject->transform->y;
-        // Marcador de la zona con el sprite nuke_site (siempre visible: "marcada desde
-        // el inicio"): mas tenue si no esta armada, brillante y pulsante en el aviso.
-        int a = armed ? 200 : 110;
-        if (armed) {
+        if (armed) { // marcador + bomba SOLO en la ventana de aviso (sorpresa: antes se veia todo el ciclo)
             float toDet = interval - timer;
-            if (toDet <= NUKE_WARN) { float pulse = 0.5f + 0.5f * std::sin(timer * 18.0f); a = (int)(150 + 105 * pulse); }
+            if (toDet <= NUKE_WARN) {
+                float frac = (NUKE_WARN - toDet) / NUKE_WARN; if (frac < 0.0f) frac = 0.0f; if (frac > 1.0f) frac = 1.0f;
+                float pulse = 0.5f + 0.5f * std::sin(timer * 18.0f);
+                drawWorldFrame(s, siteTex, x, y, NUKE_RADIUS * 2.0f, NUKE_RADIUS * 2.0f, nullptr, 0.0f, 255, 255, 255, (int)(150 + 105 * pulse));
+                float topY = -HALF_H, cy = topY + (y - topY) * frac; // la bomba desciende hasta la zona
+                drawWorldTex(s, carcassTex, x, cy, 0.15f, 0.0f);
+            }
         }
-        drawWorldFrame(s, siteTex, x, y, NUKE_RADIUS * 2.0f, NUKE_RADIUS * 2.0f, nullptr, 0.0f, 255, 255, 255, a);
         if (flash > 0.0f) Shapes::fillCircle(s, x, y, NUKE_RADIUS, 255, 230, 180, (int)(200 * flash));
+        if (armed) Debug::drawCircle(s, x, y, NUKE_RADIUS); // zona letal (solo en debug)
     }
 private:
-    SDL_Texture* siteTex = nullptr;
+    SDL_Texture* siteTex = nullptr; SDL_Texture* carcassTex = nullptr;
     float timer = 0.0f, flash = 0.0f, offset = 0.0f;
     void detonate() {
         float x = gameObject->transform->x, y = gameObject->transform->y;
@@ -473,13 +441,12 @@ private:
             decals->stampSprite("assets/redacted/hazard/nuke_crater.png", x, y,
                                  NUKE_RADIUS * 2.0f, NUKE_RADIUS * 2.0f, 0.0f, 255, 255, 255, 255);
         flash = 1.0f; timer = 0.0f;
+        gameObject->transform->x = frand(-HALF_W + 80.0f, HALF_W - 80.0f); // reaparece en otro punto (mas dificil de memorizar)
+        gameObject->transform->y = frand(-HALF_H + 80.0f, HALF_H - 80.0f);
     }
 };
 
-// ----------------------------------------------------------------------------
 //  Parches de fuego: pool de manchas de napalm que caen (las suelta el lanzallamas),
-//  persisten FIRE_LIFE seg, son letales por contacto y dejan quemadura permanente.
-// ----------------------------------------------------------------------------
 class FirePatches : public Component {
 public:
     CircleCollider* target = nullptr;
@@ -512,6 +479,7 @@ public:
             int f = (int)(animClock * 10.0f + p.x * 0.02f); f = ((f % 4) + 4) % 4; // frame + desfase
             SDL_FRect src{ (float)f * 817.0f, 0.0f, 817.0f, 544.0f };
             drawWorldFrame(s, fireTex, p.x, p.y, fw, fh, &src, 0.0f, 255, 255, 255, a);
+            Debug::drawCircle(s, p.x, p.y, FIRE_HIT); // hitbox real (solo en debug)
         }
     }
 private:
@@ -528,11 +496,7 @@ private:
     }
 };
 
-// ----------------------------------------------------------------------------
-//  Lanzallamas de techo (GDD 4.2 / 6.2): cono de 45 grados. Cada 'interval' seg
-//  escupe un chorro durante JET_TIME: letal dentro del cono y siembra parches de
-//  fuego en el suelo. La cadencia baja por fase. Inactivo hasta la Fase 2.
-// ----------------------------------------------------------------------------
+//  Lanzallamas de techo: cono de 45 grados. Cada 'interval' seg
 class Flamethrower : public Component {
 public:
     CircleCollider* target = nullptr;
@@ -543,7 +507,7 @@ public:
     float range = FLAME_RANGE;          // alcance (mayor en las paredes de la Camara 03)
     bool  active = false;
     bool  coneDebugOnly = false;        // true = el cono (AoE) solo se dibuja en modo debug
-    // Barrido opcional (GDD 6.3): el cono oscila y arrastra el fuego = "ola viajera".
+    // Barrido opcional: el cono oscila y arrastra el fuego = "ola viajera".
     float sweepBase = PI * 0.5f, sweepRange = 0.0f, sweepSpeed = 0.0f;
 
     void reset() { timer = offset; spawnAcc = 0.0f; } // conserva el desfase al reintentar
@@ -596,11 +560,7 @@ private:
     static float angDiff(float a, float b) { float d = a - b; while (d > PI) d -= 2 * PI; while (d < -PI) d += 2 * PI; return d; }
 };
 
-// ----------------------------------------------------------------------------
 //  Mina LANZADA desde el techo: ciclo espera -> caida (sombra que crece mientras
-//  la mina desciende) -> estallido al aterrizar (letal en el radio) -> desaparece
-//  dejando una quemadura NEGRA permanente. Luego repite. Reutilizable.
-// ----------------------------------------------------------------------------
 class DropMine : public Component {
 public:
     CircleCollider* target = nullptr;
@@ -640,6 +600,7 @@ public:
             drawWorldTex(s, mineTex, x, cy, 0.14f, 0.0f); // sprite de la mina cayendo
         }
         if (flash > 0.0f) Shapes::fillCircle(s, x, y, MINE_RADIUS, 255, 120, 40, (int)(220 * flash));
+        if (active) Debug::drawCircle(s, x, y, MINE_RADIUS); // zona del estallido (solo en debug)
     }
 private:
     SDL_Texture* mineTex = nullptr;
@@ -659,10 +620,7 @@ private:
     }
 };
 
-// ----------------------------------------------------------------------------
-//  Bloque de escombros (GDD 6.2): obstaculo SOLIDO no letal. Bloquea lineas de
-//  escape (dilema tactico). El collider solido se agrega aparte en la construccion.
-// ----------------------------------------------------------------------------
+//  Bloque de escombros: obstaculo SOLIDO no letal. Bloquea lineas de
 class DebrisBlock : public Component {
 public:
     float w = 120.0f, h = 180.0f;
@@ -671,7 +629,6 @@ public:
         Scene& s = *gameObject->scene;
         float x = gameObject->transform->x, y = gameObject->transform->y;
         // Trozo FIJO del suelo (siempre la misma seccion) recortado del mapa, con un
-        // tinte gris-oscuro para que se distinga del suelo normal (es un obstaculo).
         SDL_FRect src{ 430.0f, 360.0f, 130.0f, 190.0f };
         drawWorldFrame(s, mapTex, x, y, w, h, &src, 0.0f, 105, 105, 112, 255);
         Shapes::outlineRect(s, x, y, w, h, 130, 124, 116, 255); // borde para leerlo como obstaculo
@@ -680,11 +637,7 @@ private:
     SDL_Texture* mapTex = nullptr;
 };
 
-// ----------------------------------------------------------------------------
 //  Controlador de camara: temporizador de supervivencia + fases + HUD + victoria
-//  y reintento. Sobrevivir el tiempo = camara superada; morir = reinicio inmediato
-//  del intento (el gore/crateres persisten). Reutilizable por todas las camaras.
-// ----------------------------------------------------------------------------
 class Chamber : public Component {
 public:
     PhaseTimer*   timer = nullptr;
@@ -693,6 +646,7 @@ public:
     GameObject*   player = nullptr;
     Health*       hp = nullptr;
     BulletPool*   pool = nullptr;
+    ParticleSystem* fx = nullptr; // particulas de gore (se limpian al reintentar)
     float startX = 0.0f, startY = 0.0f;
     const char* name = "CAMARA";
     const char* introMsg = "ESPECIMEN 0001 EN POSICION";
@@ -709,6 +663,7 @@ public:
         if (timer) timer->reset();
         setPhase(0);
         if (pool) pool->clear();
+        if (fx) fx->clear(); // limpia el gore vivo del intento anterior
         if (player) {
             player->transform->x = startX; player->transform->y = startY;
             if (auto rb = player->getComponent<RigidBody2D>()) { rb->velocityX = 0.0f; rb->velocityY = 0.0f; }
@@ -765,9 +720,7 @@ private:
 
 } // namespace (componentes locales)
 
-// ============================================================================
-//  Cámara 01 — "El Pozo" (GDD 6.1)
-// ============================================================================
+//  Cámara 01 — "El Pozo"
 void buildCamara01(Scene& scene) {
     Audio::load("death", "assets/audio/death.wav");
     Audio::load("dash",  "assets/audio/dash.wav");
@@ -799,13 +752,13 @@ void buildCamara01(Scene& scene) {
     Audio::playMusic("assets/audio/music_camara01.ogg"); // musica de la Camara 01 (en bucle)
     chamber->nextScene = 12; // al superarla -> cinematica de entrada a Camara 02
 
-    // Jugador: aparece en el centro (GDD: moverse es sobrevivir).
+    // Jugador: aparece en el centro (moverse es sobrevivir).
     GameObject* player = scene.createGameObject("Player");
     player->tag = "player";
     player->transform->x = 0.0f; player->transform->y = 0.0f;
     setupPlayerAnim(player); // clon animado (hojas idle/run direccionales)
     auto rb = player->addComponent<RigidBody2D>(); rb->gravityScale = 0.0f;
-    auto body = player->addComponent<BoxCollider>(); body->width = body->height = BODY_SIZE;
+    auto body = player->addComponent<BoxCollider>(); body->width = BODY_W; body->height = BODY_H;
     auto hurt = player->addComponent<CircleCollider>(); hurt->radius = HURTBOX_RADIUS;
     auto hp = player->addComponent<Health>();
     player->addComponent<PlayerShip>();
@@ -830,7 +783,6 @@ void buildCamara01(Scene& scene) {
     }
 
     // 3 torretas MK-II en las paredes N, E y W. BARREN 180 grados su semiplano (no
-    // giran 360): cada una cubre el arco frente a su pared.
     struct TurretDef { float x, y, baseDeg, offset; };
     const TurretDef tdefs[3] = {
         { 0.0f, -HALF_H + 30.0f, 90.0f,  0.0f },                  // N: barre hacia abajo
@@ -884,7 +836,7 @@ void buildCamara01(Scene& scene) {
     // Cablear la camara.
     chamber->timer = nullptr; // se asigna abajo tras crear el PhaseTimer
     chamber->statusText = statusText; chamber->timerText = timerText; chamber->nexusText = nexusText;
-    chamber->fade = fade; chamber->player = player; chamber->hp = hp; chamber->pool = pool;
+    chamber->fade = fade; chamber->player = player; chamber->hp = hp; chamber->pool = pool; chamber->fx = fx;
     chamber->startX = 0.0f; chamber->startY = 0.0f;
 
     // Fases: al armar (Fase 2) se activan los nukes y las torretas aceleran.
@@ -918,9 +870,7 @@ void buildCamara01(Scene& scene) {
     };
 }
 
-// ============================================================================
-//  Cámara 02 — "La Trinchera" (GDD 6.2)
-// ============================================================================
+//  Cámara 02 — "La Trinchera"
 void buildCamara02(Scene& scene) {
     Audio::load("death", "assets/audio/death.wav");
     Audio::load("dash",  "assets/audio/dash.wav");
@@ -964,7 +914,7 @@ void buildCamara02(Scene& scene) {
     player->transform->x = 0.0f; player->transform->y = 250.0f;
     setupPlayerAnim(player); // clon animado (hojas idle/run direccionales)
     auto rb = player->addComponent<RigidBody2D>(); rb->gravityScale = 0.0f;
-    auto body = player->addComponent<BoxCollider>(); body->width = body->height = BODY_SIZE;
+    auto body = player->addComponent<BoxCollider>(); body->width = BODY_W; body->height = BODY_H;
     auto hurt = player->addComponent<CircleCollider>(); hurt->radius = HURTBOX_RADIUS;
     auto hp = player->addComponent<Health>();
     player->addComponent<PlayerShip>();
@@ -999,7 +949,6 @@ void buildCamara02(Scene& scene) {
     addFlamethrowerArt(fl);
 
     // 4 torretas MK-II ROTATIVAS en las paredes (techo N/NE + laterales). Flujo
-    // continuo + rafaga.
     struct TDef { float x, y, startDeg; };
     // baseDeg = normal hacia dentro de su pared; barren +-90 grados (no giran 360).
     const TDef tdefs[4] = {
@@ -1022,7 +971,6 @@ void buildCamara02(Scene& scene) {
     }
 
     // Un par de torretas mas PEQUENAS hacia el centro de la sala (crossfire). Giran
-    // RAPIDO y no dependen de la fase.
     std::vector<Turret*> midTurrets;
     const float midPos[2][2] = { { -110.0f, -30.0f }, { 110.0f, -30.0f } };
     for (auto& mp : midPos) {
@@ -1067,11 +1015,10 @@ void buildCamara02(Scene& scene) {
     fade->fadeIn(0.6f);
 
     chamber->statusText = statusText; chamber->timerText = timerText; chamber->nexusText = nexusText;
-    chamber->fade = fade; chamber->player = player; chamber->hp = hp; chamber->pool = pool;
+    chamber->fade = fade; chamber->player = player; chamber->hp = hp; chamber->pool = pool; chamber->fx = fx;
     chamber->startX = 0.0f; chamber->startY = 250.0f;
 
-    // Fases (GDD 6.2): F2 (18 s) activa el lanzallamas; F3 (38 s) dobla la rotacion
-    // de torretas y acorta el ciclo del lanzallamas -> el Dash se vuelve obligatorio.
+    // Fases: F2 (18 s) activa el lanzallamas; F3 (38 s) dobla la rotacion
     chamber->applyPhase = [turrets, flame, firePatches](int p) {
         for (Turret* t : turrets) t->sweepSpeed = (p >= 2) ? 1.1f : 0.6f; // barren mas rapido en F3
         flame->active   = (p >= 1);
@@ -1103,9 +1050,7 @@ void buildCamara02(Scene& scene) {
     };
 }
 
-// ============================================================================
-//  Cámara 03 — "El Suelo de Matanza" (GDD 6.3). Los 4 sistemas a la vez, 4 fases.
-// ============================================================================
+//  Cámara 03 — "El Suelo de Matanza". Los 4 sistemas a la vez, 4 fases.
 void buildCamara03(Scene& scene) {
     Audio::load("death", "assets/audio/death.wav");
     Audio::load("dash",  "assets/audio/dash.wav");
@@ -1138,13 +1083,12 @@ void buildCamara03(Scene& scene) {
     chamber->nextScene = 14; // al superarla -> cinematica de entrada al Jefe HERCULES-1
 
     // Jugador (sala abierta, sin cobertura). Arranca al centro, lejos de las torretas
-    // de techo y suelo que se deslizan.
     GameObject* player = scene.createGameObject("Player");
     player->tag = "player";
     player->transform->x = 0.0f; player->transform->y = 40.0f;
     setupPlayerAnim(player); // clon animado (hojas idle/run direccionales)
     auto rb = player->addComponent<RigidBody2D>(); rb->gravityScale = 0.0f;
-    auto body = player->addComponent<BoxCollider>(); body->width = body->height = BODY_SIZE;
+    auto body = player->addComponent<BoxCollider>(); body->width = BODY_W; body->height = BODY_H;
     auto hurt = player->addComponent<CircleCollider>(); hurt->radius = HURTBOX_RADIUS;
     auto hp = player->addComponent<Health>();
     player->addComponent<PlayerShip>();
@@ -1160,7 +1104,6 @@ void buildCamara03(Scene& scene) {
     firePatches->target = hurt; firePatches->hp = hp; firePatches->decals = decals;
 
     // 4 minas (caen del techo, estallan y dejan quemadura), una por cuadrante,
-    // desfasadas; se activan en Fase 2.
     const float minePos[4][2] = { { -260, -190 }, { 260, -190 }, { -260, 190 }, { 260, 190 } };
     std::vector<DropMine*> mines;
     for (int i = 0; i < 4; ++i) {
@@ -1186,7 +1129,6 @@ void buildCamara03(Scene& scene) {
     }
 
     // 4 lanzallamas, uno por PARED, apuntando hacia dentro y barriendo -> olas de
-    // fuego cruzadas por toda la sala (en vez de solo desde el techo).
     std::vector<Flamethrower*> flames;
     struct FlDef { float x, y, baseRad; };
     const FlDef flDefs[4] = {
@@ -1221,7 +1163,6 @@ void buildCamara03(Scene& scene) {
         addTurretArt(t, true); // arte real: base + cañon rotatorio (MK4/riel)
         auto tu = t->addComponent<Turret>();
         // Barre +-90 grados frente a su pared (techo mira abajo, suelo arriba) y rebota:
-        // nunca gira 360 ni dispara hacia su propia pared.
         tu->setSweep(bottom ? -90.0f : 90.0f, 90.0f, 0.8f);
         tu->interval = 0.0f;               // SOLO flujo (sin rafaga)
         tu->streamInterval = 0.18f;
@@ -1230,7 +1171,6 @@ void buildCamara03(Scene& scene) {
     }
 
     // 2 torretas fijas en las paredes laterales que SOLO disparan rafagas de vez en
-    // cuando (sin flujo). Barren su semiplano (no giran 360).
     std::vector<Turret*> sideTurrets;
     struct SideDef { float x, y, baseDeg; };
     const SideDef sideDefs[2] = {
@@ -1279,11 +1219,10 @@ void buildCamara03(Scene& scene) {
     fade->fadeIn(0.6f);
 
     chamber->statusText = statusText; chamber->timerText = timerText; chamber->nexusText = nexusText;
-    chamber->fade = fade; chamber->player = player; chamber->hp = hp; chamber->pool = pool;
+    chamber->fade = fade; chamber->player = player; chamber->hp = hp; chamber->pool = pool; chamber->fx = fx;
     chamber->startX = 0.0f; chamber->startY = 40.0f;
 
-    // Fases (GDD 6.3): F1(0-10) rieles+ola; F2(10-30) nukes+minas; F3(30-50) todo
-    // acelera; F4(50-60) SOBRECARGA SIGMA (todo al maximo).
+    // Fases: F1(0-10) rieles+ola; F2(10-30) nukes+minas; F3(30-50) todo
     chamber->applyPhase = [turrets, flames, nukes, mines, firePatches, chamber](int p) {
         float tMult = (p >= 3) ? 3.0f : (p >= 2) ? 2.0f : 1.0f;
         for (Turret* t : turrets) { t->railSpeed = 130.0f * tMult; t->sweepSpeed = 0.8f * tMult; }

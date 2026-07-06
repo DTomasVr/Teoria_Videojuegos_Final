@@ -1,17 +1,7 @@
 #pragma once
 #include <string>
 
-// Sistema de audio minimo sobre SDL3_mixer (API nueva MIX_*). Patron global tipo
-// Debug: un unico mixer para toda la app, que sobrevive a los cambios de escena.
-//
-// Uso:
-//   main:   Audio::init();  ... ; Audio::shutdown();  (requiere SDL_INIT_AUDIO)
-//   juego:  Audio::load("disparo", "assets/audio/shoot.wav");
-//           Audio::play("disparo");
-//
-// Los SFX cortos se cargan PREDESCODIFICADOS en RAM (mejor para efectos que suenan
-// mucho, DOCX). Todo es tolerante a fallos: si el audio no inicializa o el archivo
-// no existe, play() simplemente no hace nada (el juego corre igual, sin sonido).
+// Sistema de audio minimo sobre SDL3_mixer (API nueva MIX_*).
 
 namespace Audio {
     bool init();      // crea el dispositivo de mezcla; false si no se pudo
@@ -21,9 +11,6 @@ namespace Audio {
     void play(const std::string& name);                          // dispara un SFX
 
     // Musica de fondo EN BUCLE. Carga (y cachea) el archivo y lo reproduce en bucle
-    // en una pista propia, sustituyendo a la que estuviera sonando. Si ya esta sonando
-    // esa misma ruta, no la reinicia (asi la musica sigue fluida entre escenas que
-    // comparten pista). Tolerante a fallos: sin mixer o sin archivo, no hace nada.
     void playMusic(const std::string& path);
     void stopMusic(); // detiene la musica de fondo
 }

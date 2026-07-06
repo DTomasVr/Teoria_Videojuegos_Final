@@ -3,7 +3,6 @@
 #include "Scene.h"
 
 // Destruye su objeto al cabo de 'seconds'. Ideal para balas, efectos o cualquier
-// cosa temporal: el objeto se limpia solo sin que nadie lo vigile.
 
 class Lifetime : public Component {
 public:

@@ -3,7 +3,6 @@
 #include "Transform.h"
 
 // Cuerpo fisico simple: integra velocidad y gravedad para mover el Transform.
-// Tener un RigidBody2D vuelve al objeto "dinamico"; sin el, es estatico (pared, suelo).
 
 class RigidBody2D : public Component {
 public:

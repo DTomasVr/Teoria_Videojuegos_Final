@@ -11,7 +11,6 @@ SpriteAnimator::SpriteAnimator(int frameWidth, int frameHeight, int sheetColumns
 void SpriteAnimator::addAnimation(const std::string& name, const std::vector<int>& frames,
                                   float fps, bool loop) {
     // Modo hoja unica: sin textura propia (usa la del SpriteRenderer) y con el
-    // tamano/columnas por defecto del animator.
     Clip clip;
     clip.texture = nullptr;
     clip.frameW  = frameW;
@@ -39,7 +38,6 @@ void SpriteAnimator::addLineAnimation(const std::string& name, const std::string
                                       int fw, int fh, int index, StripAxis axis,
                                       float fps, bool loop) {
     // El AssetManager cachea por ruta, asi que clips con la misma ruta comparten
-    // textura (p.ej. varias lineas del mismo sheet) y con rutas distintas no.
     SDL_Texture* tex = gameObject->scene->getAssets().loadTexture(path);
 
     int cols = 1, rows = 1; // celdas por eje de TODA la hoja
@@ -59,7 +57,6 @@ void SpriteAnimator::addLineAnimation(const std::string& name, const std::string
     clip.columns = cols; // columnas de TODA la hoja, para mapear celda -> col/fila
 
     // La numeracion de celdas es row-major: cell = fila * cols + col, y luego
-    // applyFrame deduce col = cell % cols, fila = cell / cols.
     if (axis == StripAxis::Row) {
         // Fila fija 'index'; los frames avanzan por las columnas.
         clip.frames.reserve(cols);
@@ -115,7 +112,6 @@ void SpriteAnimator::applyFrame() {
     if (clip.frames.empty() || clip.columns <= 0) return;
 
     // Si el clip trae su propia textura (modo una tira por archivo), asegurarse de
-    // que el SpriteRenderer la este dibujando. Solo se reasigna al cambiar de clip.
     if (clip.texture && clip.texture != appliedTexture) {
         sprite->setTexture(clip.texture);
         appliedTexture = clip.texture;
